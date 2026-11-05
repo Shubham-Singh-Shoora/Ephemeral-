@@ -1,17 +1,41 @@
 {
   "seo": {
-    "title": "Nova, strony internetowe dla ambitnych marek",
-    "description": "Tworzymy nowoczesne strony internetowe, które wzmacniają wizerunek, przyciągają klientów i wspierają rozwój biznesu."
+    "title": "Ephemeral — Confidential healthcare AI",
+    "description": "A decentralized clean room where healthcare institutions prepare clinical datasets and AI companies discover privacy-preserving research opportunities."
   },
-  "heading": "Nowe możliwości dla ambitnych marek",
+  "heading": "Better healthcare AI without exposing patient data",
   "sections": [
-    { "id": "navbar", "variant": "floating" },
-    { "id": "hero", "variant": "nova" },
-    { "id": "portfolio", "variant": "nova" },
-    { "id": "novaServices", "variant": "default" },
-    { "id": "novaTeam", "variant": "default" },
-    { "id": "faq3", "variant": "default" },
-    { "id": "testimonials", "variant": "v2" },
-    { "id": "footer", "variant": "nova" }
+    {
+      "id": "navbar",
+      "variant": "floating"
+    },
+    {
+      "id": "hero",
+      "variant": "nova"
+    },
+    {
+      "id": "portfolio",
+      "variant": "nova"
+    },
+    {
+      "id": "novaServices",
+      "variant": "default"
+    },
+    {
+      "id": "novaTeam",
+      "variant": "default"
+    },
+    {
+      "id": "faq3",
+      "variant": "default"
+    },
+    {
+      "id": "testimonials",
+      "variant": "v2"
+    },
+    {
+      "id": "footer",
+      "variant": "nova"
+    }
   ]
 }
