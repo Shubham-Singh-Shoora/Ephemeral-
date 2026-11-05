@@ -8,7 +8,7 @@
   "scripts": {
     "predev": "node src/scripts/sync-phosphor-css.mjs",
     "dev": "astro dev",
-    "postinstall": "patch-package && node src/scripts/sync-phosphor-css.mjs",
+    "postinstall": "node src/scripts/sync-phosphor-css.mjs",
     "prebuild": "node src/scripts/sync-phosphor-css.mjs",
     "build": "npm run assets:gen && npm run assets:fonts && npm run assets:img && node src/scripts/scope-pages.mjs build && node src/scripts/clean-dist.mjs && node src/scripts/prune-images.mjs && node src/scripts/strip-html-comments.mjs && node src/scripts/prune-phosphor-css.mjs && node scripts/prefix-base-assets.mjs",
     "scope:restore": "node src/scripts/scope-pages.mjs restore",
@@ -23,8 +23,6 @@
     "check:imports": "tsx src/scripts/check-import-paths.ts",
     "check:registrations": "tsx src/scripts/check-registrations.ts",
     "design:sync": "tsx src/scripts/sync-design.ts",
-    "design:lint": "design.md lint design/*.md",
-    "design:spec": "design.md spec design/nova.md --output public/design-spec",
     "assets:gen": "node src/scripts/generate-favicons.cjs",
     "assets:img": "tsx src/scripts/optimize-images.ts",
     "assets:thumbs": "tsx src/scripts/generate-gallery-thumbs.ts",
@@ -55,7 +53,10 @@
     "qa:client": "tsx src/scripts/run-qa.ts client",
     "qa:help": "tsx src/scripts/run-qa.ts help",
     "audit:site": "tsx src/scripts/audit/index.ts",
-    "audit:lighthouse": "node src/scripts/lighthouse-audit.mjs"
+    "audit:lighthouse": "node src/scripts/lighthouse-audit.mjs",
+    "dev:publisher": "vite --config vite.publisher.config.ts --open /publisher/",
+    "build:publisher": "tsc -p tsconfig.publisher.json && vite build --config vite.publisher.config.ts",
+    "preview:publisher": "vite preview --config vite.publisher.config.ts"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.9",
@@ -67,6 +68,7 @@
     "@tailwindcss/forms": "^0.5.11",
     "@tailwindcss/typography": "^0.5.15",
     "@tailwindcss/vite": "^4.3.2",
+    "@tanstack/react-query": "^5.106.1",
     "astro": "^7.0.9",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -77,29 +79,48 @@
     "framer-motion": "^13.1.0",
     "lenis": "^1.3.25",
     "next-themes": "^0.4.6",
+    "papaparse": "^5.7.0",
     "react": "^19.2.5",
     "react-day-picker": "^10.0.1",
     "react-resizable-panels": "^4.12.1",
+    "react-router-dom": "^7.18.5",
     "recharts": "^3.8.0",
-    "shadcn": "^4.13.0",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwind-variants": "^3.2.2",
     "tailwindcss": "^4.3.0",
     "tw-animate-css": "^1.4.0",
     "typescript": "^5.9.3",
-    "zod": "^4.4.2"
+    "viem": "^2.57.16",
+    "wagmi": "^3.7.11",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
-    "@google/design.md": "^0.1.1",
+    "@testing-library/react": "^16.3.3",
     "@types/js-yaml": "^4.0.9",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
     "cheerio": "^1.2.0",
-    "husky": "^9.1.7",
     "js-yaml": "^4.1.1",
-    "patch-package": "^8.0.1",
+    "jsdom": "^29.1.1",
     "tsx": "^4.21.0",
+    "vite": "^8.3.6",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "@tailwindcss/typography": {
+      "postcss-selector-parser": "^6.1.5"
+    },
+    "cheerio": {
+      "encoding-sniffer": "^1.0.2",
+      "undici": "^7.30.2"
+    },
+    "unifont": {
+      "undici": "^7.30.2"
+    }
   }
 }

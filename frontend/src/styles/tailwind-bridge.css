@@ -7,7 +7,7 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 @import "./tailwind-theme.css";
-@import "shadcn/tailwind.css";
+@import "./vendor/shadcn-tailwind.css";
 
 @theme inline {
   --font-heading: 'Gambarino', serif;

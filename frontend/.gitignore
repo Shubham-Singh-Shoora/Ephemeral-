@@ -53,3 +53,5 @@ TEMPLATE.md
 archive/
 
 dev-server.log
+
+dist-publisher/

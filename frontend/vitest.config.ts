@@ -15,6 +15,7 @@ const logger = new AstroLogger({
 });
 
 export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic' } },
   plugins: [astro({ settings, logger })],
   resolve: {
     alias: {
