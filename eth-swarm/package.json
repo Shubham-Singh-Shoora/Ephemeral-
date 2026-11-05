@@ -1,0 +1,20 @@
+{
+  "name": "@ephemeral/eth-swarm",
+  "version": "1.0.0",
+  "description": "Ethereum Swarm Bee v2.8+ client, ACT access control, and confidential pipeline storage",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ethersphere/bee-js": "^13.2.0",
+    "ethers": "^6.13.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}
