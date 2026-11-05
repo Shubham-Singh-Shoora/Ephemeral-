@@ -1,0 +1,19 @@
+{
+  "name": "contracts",
+  "version": "1.0.0",
+  "description": "`EphemeralCoordinator` is the hospital and dataset registry, job-vault factory, and stable CRE entry point for the confidential healthcare AI pipeline. Every training request deploys a separate `EphemeralJobVault`, so builder payments are isolated by training run and never pooled in the coordinator.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "solc": "^0.8.26"
+  }
+}
