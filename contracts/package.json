@@ -1,19 +1,21 @@
 {
   "name": "contracts",
   "version": "1.0.0",
-  "description": "`EphemeralCoordinator` is the hospital and dataset registry, job-vault factory, and stable CRE entry point for the confidential healthcare AI pipeline. Every training request deploys a separate `EphemeralJobVault`, so builder payments are isolated by training run and never pooled in the coordinator.",
+  "description": "Ephemeral's Gnosis xDAI and Base USDC coordinators create an isolated escrow vault for every confidential healthcare training run.",
   "main": "index.js",
   "directories": {
     "lib": "lib",
     "test": "test"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "wsl -e bash -lc \"cd /mnt/e/Ephemeral/contracts && ~/.foundry/bin/forge test\"",
+    "execute:storage-reserve": "node --env-file=.env automation/storage-reserve-executor.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "solc": "^0.8.26"
+    "@1inch/cross-chain-sdk": "^2.2.4",
+    "viem": "^2.57.16"
   }
 }

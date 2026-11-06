@@ -159,7 +159,25 @@ contract EphemeralCoordinatorTest is Test {
             encryptedModelRef: abi.encodePacked(keccak256("model-root"), keccak256("model-key")),
             modelFamily: "Random Forest",
             builderPublicKey: hex"04112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00",
-            executionWindow: 2 days
+            executionWindow: 2 days,
+            convergence: _convergence()
         });
+    }
+
+    function _convergence() private pure returns (EphemeralCoordinator.ConvergenceConfig memory config) {
+        config.targetColumns = new string[](1);
+        config.targetColumns[0] = "risk_band";
+        config.featureColumns = new string[](3);
+        config.featureColumns[0] = "heart_rate";
+        config.featureColumns[1] = "temperature";
+        config.featureColumns[2] = "lactate";
+        config.taskTypes = new uint8[](1);
+        config.taskTypes[0] = 0;
+        config.modelProfile = "tree_ensemble";
+        config.targetMetric = "f1_macro";
+        config.minTargetScorePpm = 850_000;
+        config.maxOverfitGapPpm = 60_000;
+        config.maxTrials = 10;
+        config.splitSeed = 42;
     }
 }

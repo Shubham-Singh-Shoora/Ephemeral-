@@ -22,6 +22,12 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     uint256 public constant MAX_NAME_LENGTH = 128;
     uint256 public constant MAX_CATEGORY_LENGTH = 64;
     uint256 public constant MAX_MODEL_FAMILY_LENGTH = 64;
+    uint256 public constant MAX_COLUMN_NAME_LENGTH = 64;
+    uint256 public constant MAX_TARGET_COLUMNS = 8;
+    uint256 public constant MAX_FEATURE_COLUMNS = 64;
+    uint32 public constant SCORE_SCALE = 1_000_000;
+    uint32 public constant MAX_OVERFIT_GAP_PPM = 500_000;
+    uint8 public constant MAX_TUNING_TRIALS = 25;
 
     enum HospitalStatus { None, Pending, Accredited, Revoked }
     enum JobState { None, Funded, Running, Completed, Refunded }
@@ -65,12 +71,25 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         bool active;
     }
 
+    struct ConvergenceConfig {
+        string[] targetColumns;
+        string[] featureColumns;
+        uint8[] taskTypes; // 0 = classification, 1 = regression
+        string modelProfile;
+        string targetMetric;
+        uint32 minTargetScorePpm;
+        uint32 maxOverfitGapPpm;
+        uint8 maxTrials;
+        uint32 splitSeed;
+    }
+
     struct TrainingRequest {
         uint256 datasetId;
         bytes encryptedModelRef;
         string modelFamily;
         bytes builderPublicKey;
         uint64 executionWindow;
+        ConvergenceConfig convergence;
     }
 
     struct TrainingJob {
@@ -83,6 +102,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         bytes encryptedModelRef;
         string modelFamily;
         bytes builderPublicKey;
+        bytes32 convergenceConfigHash;
         bytes32 attestationHash;
         bytes32 teePublicKeyHash;
         bytes outputModelRef;
@@ -98,6 +118,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     error InvalidHash();
     error InvalidPrice();
     error InvalidExecutionWindow();
+    error InvalidConvergenceConfig();
     error InvalidPayment(uint256 expected, uint256 received);
     error NativeTransferFailed(address recipient, uint256 amount);
     error HospitalAlreadyApplied(address hospital);
@@ -141,7 +162,9 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         address indexed builder,
         address vault,
         bytes encryptedModelRef,
+        string modelFamily,
         bytes builderPublicKey,
+        bytes32 convergenceConfigHash,
         uint64 deadline
     );
     event TrainingJobStarted(
@@ -165,6 +188,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     mapping(bytes32 licenseIdHash => address hospital) public licenseHolder;
     mapping(uint256 datasetId => Dataset dataset) private datasets;
     mapping(uint256 jobId => TrainingJob job) private jobs;
+    mapping(uint256 jobId => ConvergenceConfig config) private jobConvergenceConfigs;
     mapping(address vault => uint256 jobId) public jobIdByVault;
     mapping(uint256 datasetId => uint256 jobId) public activeJobIdByDataset;
 
@@ -293,6 +317,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
                 || !_validPublicKeyLength(request.builderPublicKey.length)
         ) revert InvalidLength();
         if (request.executionWindow < MIN_EXECUTION_WINDOW || request.executionWindow > MAX_EXECUTION_WINDOW) revert InvalidExecutionWindow();
+        _validateConvergenceConfig(request.convergence);
         uint256 activeJobId = activeJobIdByDataset[request.datasetId];
         if (activeJobId != 0) {
             JobState activeState = _vaultState(jobs[activeJobId].vault);
@@ -306,6 +331,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
         jobId = nextJobId++;
         uint64 deadline = uint64(block.timestamp + request.executionWindow);
+        bytes32 convergenceConfigHash = keccak256(abi.encode(request.convergence));
         EphemeralJobVault vault = new EphemeralJobVault{value: bounty}(
             address(this), msg.sender, dataset.hospital, hospitals[dataset.hospital].payoutAddress, request.datasetId, deadline
         );
@@ -320,6 +346,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
             encryptedModelRef: request.encryptedModelRef,
             modelFamily: request.modelFamily,
             builderPublicKey: request.builderPublicKey,
+            convergenceConfigHash: convergenceConfigHash,
             attestationHash: bytes32(0),
             teePublicKeyHash: bytes32(0),
             outputModelRef: bytes(""),
@@ -328,6 +355,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
             deadline: deadline,
             state: JobState.Funded
         });
+        jobConvergenceConfigs[jobId] = request.convergence;
         jobIdByVault[vaultAddress] = jobId;
         activeJobIdByDataset[request.datasetId] = jobId;
 
@@ -427,6 +455,11 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         job.state = _vaultState(job.vault);
     }
 
+    function getTrainingConvergenceConfig(uint256 jobId) external view returns (ConvergenceConfig memory config) {
+        if (jobs[jobId].vault == address(0)) revert JobNotFound(jobId);
+        return jobConvergenceConfigs[jobId];
+    }
+
     function _finalizeTrainingJob(
         uint256 jobId, bytes32 attestationHash, bytes memory teePublicKey,
         bytes memory newGranteeListRef, bytes32 newActHistoryRef,
@@ -494,7 +527,17 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     function _emitTrainingJobRequested(uint256 jobId) private {
         TrainingJob storage job = jobs[jobId];
-        emit TrainingJobRequested(jobId, job.datasetId, job.builder, job.vault, job.encryptedModelRef, job.builderPublicKey, job.deadline);
+        emit TrainingJobRequested(
+            jobId,
+            job.datasetId,
+            job.builder,
+            job.vault,
+            job.encryptedModelRef,
+            job.modelFamily,
+            job.builderPublicKey,
+            job.convergenceConfigHash,
+            job.deadline
+        );
     }
 
     function _vaultState(address vault) private view returns (JobState) {
@@ -503,5 +546,46 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     function _validPublicKeyLength(uint256 length) private pure returns (bool) {
         return length == COMPRESSED_PUBLIC_KEY_LENGTH || length == UNCOMPRESSED_PUBLIC_KEY_LENGTH;
+    }
+
+    function _validateConvergenceConfig(ConvergenceConfig calldata config) private pure {
+        uint256 targets = config.targetColumns.length;
+        uint256 features = config.featureColumns.length;
+        if (
+            targets == 0 || targets > MAX_TARGET_COLUMNS || features == 0 || features > MAX_FEATURE_COLUMNS
+                || config.taskTypes.length != targets || config.minTargetScorePpm == 0
+                || config.minTargetScorePpm > SCORE_SCALE || config.maxOverfitGapPpm > MAX_OVERFIT_GAP_PPM
+                || config.maxTrials == 0 || config.maxTrials > MAX_TUNING_TRIALS
+        ) revert InvalidConvergenceConfig();
+        bytes32 profileHash = keccak256(bytes(config.modelProfile));
+        if (
+            profileHash != keccak256("linear_or_distance") && profileHash != keccak256("tree_ensemble")
+                && profileHash != keccak256("deep_vision_monai")
+                && profileHash != keccak256("custom_sklearn_pipeline")
+        ) revert InvalidConvergenceConfig();
+        bytes32 metricHash = keccak256(bytes(config.targetMetric));
+        if (
+            metricHash != keccak256("f1_macro") && metricHash != keccak256("roc_auc")
+                && metricHash != keccak256("accuracy") && metricHash != keccak256("rmse")
+        ) revert InvalidConvergenceConfig();
+        for (uint256 i; i < targets; ++i) {
+            bytes memory target = bytes(config.targetColumns[i]);
+            if (target.length == 0 || target.length > MAX_COLUMN_NAME_LENGTH || config.taskTypes[i] > 1) {
+                revert InvalidConvergenceConfig();
+            }
+            for (uint256 j = i + 1; j < targets; ++j) {
+                if (keccak256(target) == keccak256(bytes(config.targetColumns[j]))) revert InvalidConvergenceConfig();
+            }
+            for (uint256 j; j < features; ++j) {
+                if (keccak256(target) == keccak256(bytes(config.featureColumns[j]))) revert InvalidConvergenceConfig();
+            }
+        }
+        for (uint256 i; i < features; ++i) {
+            bytes memory feature = bytes(config.featureColumns[i]);
+            if (feature.length == 0 || feature.length > MAX_COLUMN_NAME_LENGTH) revert InvalidConvergenceConfig();
+            for (uint256 j = i + 1; j < features; ++j) {
+                if (keccak256(feature) == keccak256(bytes(config.featureColumns[j]))) revert InvalidConvergenceConfig();
+            }
+        }
     }
 }
