@@ -3,39 +3,28 @@ pragma solidity ^0.8.20;
 
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {EphemeralJobVault} from "./EphemeralJobVault.sol";
 
 /// @title EphemeralCoordinator
-/// @notice Hospital and dataset registry, training-vault factory, and stable CRE entry point.
-/// @dev Each training request deploys an EphemeralJobVault. The coordinator never pools job funds.
+/// @notice Gnosis-native registry, isolated job-vault factory, and CRE report receiver.
 contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
     uint64 public constant MIN_EXECUTION_WINDOW = 1 hours;
     uint64 public constant MAX_EXECUTION_WINDOW = 30 days;
+    uint256 public constant BPS = 10_000;
+    uint256 public constant STORAGE_RESERVE_BPS = 250;
+    uint256 public constant EXECUTION_RESERVE_BPS = 50;
+    uint256 public constant PLATFORM_FEE_BPS = 200;
+    uint256 public constant SURCHARGE_BPS = STORAGE_RESERVE_BPS + EXECUTION_RESERVE_BPS + PLATFORM_FEE_BPS;
 
-    enum HospitalStatus {
-        None,
-        Pending,
-        Accredited,
-        Revoked
-    }
-
-    enum JobState {
-        None,
-        Funded,
-        Running,
-        Completed,
-        Refunded
-    }
+    enum HospitalStatus { None, Pending, Accredited, Revoked }
+    enum JobState { None, Funded, Running, Completed, Refunded }
+    enum CreAction { MarkRunning, Complete, Refund, Finalize, RefundWithActRoot }
 
     struct Hospital {
         string name;
         bytes32 licenseIdHash;
-        address payoutAddress;
+        address payable payoutAddress;
         HospitalStatus status;
         uint64 appliedAt;
         uint64 reviewedAt;
@@ -44,11 +33,13 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     struct DatasetRegistration {
         string title;
         string clinicalCategory;
-        bytes32 encryptedDatasetRef;
-        bytes32 actRef;
+        bytes encryptedDatasetRef;
+        bytes granteeListRef;
+        bytes32 actHistoryRef;
+        bytes publisherPublicKey;
         bytes32 syntheticSchemaRef;
+        bytes32 feedManifestRef;
         bytes32 vaultKeyCommitment;
-        address paymentToken;
         uint256 price;
     }
 
@@ -56,11 +47,13 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         address hospital;
         string title;
         string clinicalCategory;
-        bytes32 encryptedDatasetRef;
-        bytes32 actRef;
+        bytes encryptedDatasetRef;
+        bytes granteeListRef;
+        bytes32 actHistoryRef;
+        bytes publisherPublicKey;
         bytes32 syntheticSchemaRef;
+        bytes32 feedManifestRef;
         bytes32 vaultKeyCommitment;
-        address paymentToken;
         uint256 price;
         uint64 createdAt;
         bool active;
@@ -68,7 +61,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     struct TrainingRequest {
         uint256 datasetId;
-        bytes32 encryptedModelRef;
+        bytes encryptedModelRef;
         string modelFamily;
         bytes builderPublicKey;
         uint64 executionWindow;
@@ -79,14 +72,14 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         address vault;
         address builder;
         address hospital;
-        address paymentToken;
         uint256 paymentAmount;
-        bytes32 encryptedModelRef;
+        uint256 surchargeAmount;
+        bytes encryptedModelRef;
         string modelFamily;
         bytes builderPublicKey;
         bytes32 attestationHash;
         bytes32 teePublicKeyHash;
-        bytes32 outputModelRef;
+        bytes outputModelRef;
         bytes32 executionProofHash;
         uint64 createdAt;
         uint64 deadline;
@@ -98,44 +91,49 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     error InvalidHash();
     error InvalidPrice();
     error InvalidExecutionWindow();
+    error InvalidPayment(uint256 expected, uint256 received);
+    error NativeTransferFailed(address recipient, uint256 amount);
     error HospitalAlreadyApplied(address hospital);
     error LicenseAlreadyUsed(bytes32 licenseIdHash);
     error HospitalNotFound(address hospital);
     error HospitalNotAccredited(address hospital);
-    error TokenNotSupported(address token);
     error DatasetNotFound(uint256 datasetId);
     error DatasetInactive(uint256 datasetId);
+    error DatasetBusy(uint256 datasetId, uint256 activeJobId);
     error NotDatasetHospital(uint256 datasetId, address caller);
     error JobNotFound(uint256 jobId);
     error InvalidJobState(uint256 jobId, JobState expected, JobState actual);
     error NotCreForwarder(address caller);
-    error TransferAmountMismatch(uint256 expected, uint256 received);
 
-    event HospitalApplied(
-        address indexed hospital,
-        bytes32 indexed licenseIdHash,
-        address indexed payoutAddress,
-        string name
-    );
+    event HospitalApplied(address indexed hospital, bytes32 indexed licenseIdHash, address indexed payoutAddress, string name);
     event HospitalAccreditationChanged(address indexed hospital, HospitalStatus status);
     event HospitalPayoutAddressChanged(address indexed hospital, address indexed payoutAddress);
-    event PaymentTokenSupportChanged(address indexed token, bool supported);
     event CreForwarderChanged(address indexed previousForwarder, address indexed newForwarder);
+    event ProtocolTreasuryChanged(address indexed previousTreasury, address indexed newTreasury);
     event DatasetRegistered(
         uint256 indexed datasetId,
         address indexed hospital,
-        address indexed paymentToken,
-        bytes32 encryptedDatasetRef,
-        bytes32 actRef,
-        bytes32 syntheticSchemaRef
+        bytes encryptedDatasetRef,
+        bytes granteeListRef,
+        bytes32 actHistoryRef,
+        bytes32 syntheticSchemaRef,
+        uint256 price
     );
     event DatasetAvailabilityChanged(uint256 indexed datasetId, bool active);
+    event DatasetActRootUpdated(uint256 indexed datasetId, bytes granteeListRef, bytes32 actHistoryRef);
+    event ProtocolSurchargeAllocated(
+        uint256 indexed jobId,
+        uint256 storageReserve,
+        uint256 executionReserve,
+        uint256 platformFee,
+        address indexed treasury
+    );
     event TrainingJobRequested(
         uint256 indexed jobId,
         uint256 indexed datasetId,
         address indexed builder,
         address vault,
-        bytes32 encryptedModelRef,
+        bytes encryptedModelRef,
         bytes builderPublicKey,
         uint64 deadline
     );
@@ -149,26 +147,22 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     event TrainingJobCompleted(
         uint256 indexed jobId,
         address indexed vault,
-        bytes32 indexed outputModelRef,
+        bytes outputModelRef,
         bytes32 executionProofHash,
         address hospital,
         uint256 paymentAmount
     );
-    event TrainingJobRefunded(
-        uint256 indexed jobId,
-        address indexed vault,
-        address indexed builder,
-        bytes32 reasonHash
-    );
+    event TrainingJobRefunded(uint256 indexed jobId, address indexed vault, address indexed builder, bytes32 reasonHash);
 
     mapping(address hospital => Hospital profile) private hospitals;
     mapping(bytes32 licenseIdHash => address hospital) public licenseHolder;
-    mapping(address token => bool supported) public supportedPaymentTokens;
     mapping(uint256 datasetId => Dataset dataset) private datasets;
     mapping(uint256 jobId => TrainingJob job) private jobs;
     mapping(address vault => uint256 jobId) public jobIdByVault;
+    mapping(uint256 datasetId => uint256 jobId) public activeJobIdByDataset;
 
     address public creForwarder;
+    address payable public protocolTreasury;
     uint256 public nextDatasetId = 1;
     uint256 public nextJobId = 1;
 
@@ -177,27 +171,21 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         _;
     }
 
-    constructor(address initialOwner, address initialCreForwarder) Ownable(initialOwner) {
-        if (initialCreForwarder == address(0)) revert ZeroAddress();
+    constructor(address initialOwner, address initialCreForwarder, address payable initialTreasury) Ownable(initialOwner) {
+        if (initialCreForwarder == address(0) || initialTreasury == address(0)) revert ZeroAddress();
         creForwarder = initialCreForwarder;
+        protocolTreasury = initialTreasury;
         emit CreForwarderChanged(address(0), initialCreForwarder);
+        emit ProtocolTreasuryChanged(address(0), initialTreasury);
     }
 
-    function applyForAccreditation(string calldata name, bytes32 licenseIdHash, address payoutAddress) external {
+    function applyForAccreditation(string calldata name, bytes32 licenseIdHash, address payable payoutAddress) external {
         if (bytes(name).length == 0) revert EmptyField();
         if (licenseIdHash == bytes32(0)) revert InvalidHash();
         if (payoutAddress == address(0)) revert ZeroAddress();
         if (hospitals[msg.sender].status != HospitalStatus.None) revert HospitalAlreadyApplied(msg.sender);
         if (licenseHolder[licenseIdHash] != address(0)) revert LicenseAlreadyUsed(licenseIdHash);
-
-        hospitals[msg.sender] = Hospital({
-            name: name,
-            licenseIdHash: licenseIdHash,
-            payoutAddress: payoutAddress,
-            status: HospitalStatus.Pending,
-            appliedAt: uint64(block.timestamp),
-            reviewedAt: 0
-        });
+        hospitals[msg.sender] = Hospital(name, licenseIdHash, payoutAddress, HospitalStatus.Pending, uint64(block.timestamp), 0);
         licenseHolder[licenseIdHash] = msg.sender;
         emit HospitalApplied(msg.sender, licenseIdHash, payoutAddress, name);
     }
@@ -210,7 +198,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         emit HospitalAccreditationChanged(hospital, profile.status);
     }
 
-    function setHospitalPayoutAddress(address payoutAddress) external {
+    function setHospitalPayoutAddress(address payable payoutAddress) external {
         if (payoutAddress == address(0)) revert ZeroAddress();
         Hospital storage profile = hospitals[msg.sender];
         if (profile.status == HospitalStatus.None) revert HospitalNotFound(msg.sender);
@@ -218,202 +206,187 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         emit HospitalPayoutAddressChanged(msg.sender, payoutAddress);
     }
 
-    function setPaymentToken(address token, bool supported) external onlyOwner {
-        if (token == address(0)) revert ZeroAddress();
-        supportedPaymentTokens[token] = supported;
-        emit PaymentTokenSupportChanged(token, supported);
-    }
-
     function setCreForwarder(address newCreForwarder) external onlyOwner {
         if (newCreForwarder == address(0)) revert ZeroAddress();
-        address previousForwarder = creForwarder;
+        emit CreForwarderChanged(creForwarder, newCreForwarder);
         creForwarder = newCreForwarder;
-        emit CreForwarderChanged(previousForwarder, newCreForwarder);
     }
 
-    function registerDataset(DatasetRegistration calldata registration) external returns (uint256 datasetId) {
-        if (hospitals[msg.sender].status != HospitalStatus.Accredited) {
-            revert HospitalNotAccredited(msg.sender);
-        }
-        if (bytes(registration.title).length == 0 || bytes(registration.clinicalCategory).length == 0) {
-            revert EmptyField();
-        }
-        if (
-            registration.encryptedDatasetRef == bytes32(0) || registration.actRef == bytes32(0)
-                || registration.syntheticSchemaRef == bytes32(0) || registration.vaultKeyCommitment == bytes32(0)
-        ) revert InvalidHash();
-        if (!supportedPaymentTokens[registration.paymentToken]) {
-            revert TokenNotSupported(registration.paymentToken);
-        }
-        if (registration.price == 0) revert InvalidPrice();
+    function setProtocolTreasury(address payable newTreasury) external onlyOwner {
+        if (newTreasury == address(0)) revert ZeroAddress();
+        emit ProtocolTreasuryChanged(protocolTreasury, newTreasury);
+        protocolTreasury = newTreasury;
+    }
 
+    function registerDataset(DatasetRegistration calldata r) external returns (uint256 datasetId) {
+        if (hospitals[msg.sender].status != HospitalStatus.Accredited) revert HospitalNotAccredited(msg.sender);
+        if (bytes(r.title).length == 0 || bytes(r.clinicalCategory).length == 0) revert EmptyField();
+        if (
+            r.encryptedDatasetRef.length == 0 || r.granteeListRef.length == 0 || r.actHistoryRef == bytes32(0)
+                || r.publisherPublicKey.length == 0 || r.syntheticSchemaRef == bytes32(0)
+                || r.vaultKeyCommitment == bytes32(0)
+        ) revert InvalidHash();
+        if (r.price == 0) revert InvalidPrice();
         datasetId = nextDatasetId++;
         datasets[datasetId] = Dataset({
             hospital: msg.sender,
-            title: registration.title,
-            clinicalCategory: registration.clinicalCategory,
-            encryptedDatasetRef: registration.encryptedDatasetRef,
-            actRef: registration.actRef,
-            syntheticSchemaRef: registration.syntheticSchemaRef,
-            vaultKeyCommitment: registration.vaultKeyCommitment,
-            paymentToken: registration.paymentToken,
-            price: registration.price,
+            title: r.title,
+            clinicalCategory: r.clinicalCategory,
+            encryptedDatasetRef: r.encryptedDatasetRef,
+            granteeListRef: r.granteeListRef,
+            actHistoryRef: r.actHistoryRef,
+            publisherPublicKey: r.publisherPublicKey,
+            syntheticSchemaRef: r.syntheticSchemaRef,
+            feedManifestRef: r.feedManifestRef,
+            vaultKeyCommitment: r.vaultKeyCommitment,
+            price: r.price,
             createdAt: uint64(block.timestamp),
             active: true
         });
-
-        emit DatasetRegistered(
-            datasetId,
-            msg.sender,
-            registration.paymentToken,
-            registration.encryptedDatasetRef,
-            registration.actRef,
-            registration.syntheticSchemaRef
-        );
+        emit DatasetRegistered(datasetId, msg.sender, r.encryptedDatasetRef, r.granteeListRef, r.actHistoryRef, r.syntheticSchemaRef, r.price);
     }
 
     function setDatasetActive(uint256 datasetId, bool active) external {
         Dataset storage dataset = datasets[datasetId];
         if (dataset.hospital == address(0)) revert DatasetNotFound(datasetId);
         if (dataset.hospital != msg.sender) revert NotDatasetHospital(datasetId, msg.sender);
-        if (active) {
-            if (hospitals[msg.sender].status != HospitalStatus.Accredited) {
-                revert HospitalNotAccredited(msg.sender);
-            }
-            if (!supportedPaymentTokens[dataset.paymentToken]) revert TokenNotSupported(dataset.paymentToken);
-        }
+        if (active && hospitals[msg.sender].status != HospitalStatus.Accredited) revert HospitalNotAccredited(msg.sender);
         dataset.active = active;
         emit DatasetAvailabilityChanged(datasetId, active);
     }
 
+    function quoteTrainingJob(uint256 datasetId) public view returns (uint256 bounty, uint256 surcharge, uint256 total) {
+        Dataset storage dataset = datasets[datasetId];
+        if (dataset.hospital == address(0)) revert DatasetNotFound(datasetId);
+        bounty = dataset.price;
+        surcharge = (bounty * SURCHARGE_BPS) / BPS;
+        total = bounty + surcharge;
+    }
+
     function createTrainingJob(TrainingRequest calldata request)
         external
+        payable
         nonReentrant
         returns (uint256 jobId, address vaultAddress)
     {
         Dataset storage dataset = datasets[request.datasetId];
         if (dataset.hospital == address(0)) revert DatasetNotFound(request.datasetId);
         if (!dataset.active) revert DatasetInactive(request.datasetId);
-        if (hospitals[dataset.hospital].status != HospitalStatus.Accredited) {
-            revert HospitalNotAccredited(dataset.hospital);
-        }
-        if (!supportedPaymentTokens[dataset.paymentToken]) revert TokenNotSupported(dataset.paymentToken);
-        if (request.encryptedModelRef == bytes32(0)) revert InvalidHash();
+        if (hospitals[dataset.hospital].status != HospitalStatus.Accredited) revert HospitalNotAccredited(dataset.hospital);
+        if (request.encryptedModelRef.length == 0) revert InvalidHash();
         if (bytes(request.modelFamily).length == 0 || request.builderPublicKey.length == 0) revert EmptyField();
-        if (
-            request.executionWindow < MIN_EXECUTION_WINDOW || request.executionWindow > MAX_EXECUTION_WINDOW
-        ) revert InvalidExecutionWindow();
+        if (request.executionWindow < MIN_EXECUTION_WINDOW || request.executionWindow > MAX_EXECUTION_WINDOW) revert InvalidExecutionWindow();
+        uint256 activeJobId = activeJobIdByDataset[request.datasetId];
+        if (activeJobId != 0) {
+            JobState activeState = _vaultState(jobs[activeJobId].vault);
+            if (activeState == JobState.Funded || activeState == JobState.Running) {
+                revert DatasetBusy(request.datasetId, activeJobId);
+            }
+            delete activeJobIdByDataset[request.datasetId];
+        }
+        (uint256 bounty, uint256 surcharge, uint256 total) = quoteTrainingJob(request.datasetId);
+        if (msg.value != total) revert InvalidPayment(total, msg.value);
 
         jobId = nextJobId++;
         uint64 deadline = uint64(block.timestamp + request.executionWindow);
-        address payoutAddress = hospitals[dataset.hospital].payoutAddress;
-        EphemeralJobVault vault = new EphemeralJobVault(
-            address(this),
-            msg.sender,
-            dataset.hospital,
-            payoutAddress,
-            dataset.paymentToken,
-            dataset.price,
-            request.datasetId,
-            deadline
+        EphemeralJobVault vault = new EphemeralJobVault{value: bounty}(
+            address(this), msg.sender, dataset.hospital, hospitals[dataset.hospital].payoutAddress, request.datasetId, deadline
         );
         vaultAddress = address(vault);
-
-        IERC20 token = IERC20(dataset.paymentToken);
-        uint256 balanceBefore = token.balanceOf(vaultAddress);
-        token.safeTransferFrom(msg.sender, vaultAddress, dataset.price);
-        uint256 received = token.balanceOf(vaultAddress) - balanceBefore;
-        if (received != dataset.price) revert TransferAmountMismatch(dataset.price, received);
-
         jobs[jobId] = TrainingJob({
             datasetId: request.datasetId,
             vault: vaultAddress,
             builder: msg.sender,
             hospital: dataset.hospital,
-            paymentToken: dataset.paymentToken,
-            paymentAmount: dataset.price,
+            paymentAmount: bounty,
+            surchargeAmount: surcharge,
             encryptedModelRef: request.encryptedModelRef,
             modelFamily: request.modelFamily,
             builderPublicKey: request.builderPublicKey,
             attestationHash: bytes32(0),
             teePublicKeyHash: bytes32(0),
-            outputModelRef: bytes32(0),
+            outputModelRef: bytes(""),
             executionProofHash: bytes32(0),
             createdAt: uint64(block.timestamp),
             deadline: deadline,
             state: JobState.Funded
         });
         jobIdByVault[vaultAddress] = jobId;
+        activeJobIdByDataset[request.datasetId] = jobId;
 
-        emit TrainingJobRequested(
-            jobId,
-            request.datasetId,
-            msg.sender,
-            vaultAddress,
-            request.encryptedModelRef,
-            request.builderPublicKey,
-            deadline
-        );
+        uint256 storageReserve = (bounty * STORAGE_RESERVE_BPS) / BPS;
+        uint256 executionReserve = (bounty * EXECUTION_RESERVE_BPS) / BPS;
+        uint256 platformFee = surcharge - storageReserve - executionReserve;
+        address payable treasury = protocolTreasury;
+        emit ProtocolSurchargeAllocated(jobId, storageReserve, executionReserve, platformFee, treasury);
+        _emitTrainingJobRequested(jobId);
+        (bool sent,) = treasury.call{value: surcharge}("");
+        if (!sent) revert NativeTransferFailed(treasury, surcharge);
     }
 
-    function markJobRunning(uint256 jobId, bytes32 attestationHash, bytes calldata teePublicKey)
-        external
-        onlyCreForwarder
-    {
-        TrainingJob storage job = _jobInState(jobId, JobState.Funded);
-        if (attestationHash == bytes32(0)) revert InvalidHash();
-        if (teePublicKey.length == 0) revert EmptyField();
-
-        bytes32 teePublicKeyHash = keccak256(teePublicKey);
-        EphemeralJobVault(job.vault).markRunning(attestationHash, teePublicKeyHash);
-        job.attestationHash = attestationHash;
-        job.teePublicKeyHash = teePublicKeyHash;
-        job.state = JobState.Running;
-
-        emit TrainingJobStarted(jobId, job.vault, attestationHash, teePublicKeyHash, teePublicKey);
+    function markJobRunning(
+        uint256 jobId, bytes32 attestationHash, bytes calldata teePublicKey,
+        bytes calldata newGranteeListRef, bytes32 newActHistoryRef
+    ) external onlyCreForwarder {
+        _markJobRunning(jobId, attestationHash, teePublicKey, newGranteeListRef, newActHistoryRef);
     }
 
-    function completeTrainingJob(uint256 jobId, bytes32 outputModelRef, bytes32 executionProofHash)
-        external
-        onlyCreForwarder
-        nonReentrant
+    function completeTrainingJob(uint256 jobId, bytes calldata outputModelRef, bytes32 executionProofHash)
+        external onlyCreForwarder nonReentrant
     {
-        TrainingJob storage job = _jobInState(jobId, JobState.Running);
-        if (outputModelRef == bytes32(0) || executionProofHash == bytes32(0)) revert InvalidHash();
+        _completeTrainingJob(jobId, outputModelRef, executionProofHash);
+    }
 
-        EphemeralJobVault(job.vault).complete(outputModelRef, executionProofHash);
-        job.outputModelRef = outputModelRef;
-        job.executionProofHash = executionProofHash;
-        job.state = JobState.Completed;
-
-        emit TrainingJobCompleted(
-            jobId,
-            job.vault,
-            outputModelRef,
-            executionProofHash,
-            job.hospital,
-            job.paymentAmount
-        );
+    function finalizeTrainingJob(
+        uint256 jobId, bytes32 attestationHash, bytes calldata teePublicKey,
+        bytes calldata newGranteeListRef, bytes32 newActHistoryRef,
+        bytes calldata outputModelRef, bytes32 executionProofHash
+    ) external onlyCreForwarder nonReentrant {
+        _finalizeTrainingJob(jobId, attestationHash, teePublicKey, newGranteeListRef, newActHistoryRef, outputModelRef, executionProofHash);
     }
 
     function refundFailedJob(uint256 jobId, bytes32 reasonHash) external onlyCreForwarder nonReentrant {
-        if (reasonHash == bytes32(0)) revert InvalidHash();
-        TrainingJob storage job = _activeJob(jobId);
-        EphemeralJobVault(job.vault).refundFailure(reasonHash);
-        job.state = JobState.Refunded;
-        emit TrainingJobRefunded(jobId, job.vault, job.builder, reasonHash);
+        _refundFailedJob(jobId, reasonHash);
+    }
+
+    /// @notice Stable entry point used by Chainlink KeystoneForwarder DON-signed reports.
+    function onReport(bytes calldata, bytes calldata report) external onlyCreForwarder nonReentrant {
+        (CreAction action, bytes memory payload) = abi.decode(report, (CreAction, bytes));
+        if (action == CreAction.MarkRunning) {
+            (uint256 jobId, bytes32 attestationHash, bytes memory teeKey, bytes memory listRef, bytes32 historyRef) =
+                abi.decode(payload, (uint256, bytes32, bytes, bytes, bytes32));
+            _markJobRunning(jobId, attestationHash, teeKey, listRef, historyRef);
+        } else if (action == CreAction.Complete) {
+            (uint256 jobId, bytes memory outputRef, bytes32 proofHash) = abi.decode(payload, (uint256, bytes, bytes32));
+            _completeTrainingJob(jobId, outputRef, proofHash);
+        } else if (action == CreAction.Refund) {
+            (uint256 jobId, bytes32 reasonHash) = abi.decode(payload, (uint256, bytes32));
+            _refundFailedJob(jobId, reasonHash);
+        } else if (action == CreAction.Finalize) {
+            (
+                uint256 jobId, bytes32 attestationHash, bytes memory teeKey, bytes memory listRef,
+                bytes32 historyRef, bytes memory outputRef, bytes32 proofHash
+            ) = abi.decode(payload, (uint256, bytes32, bytes, bytes, bytes32, bytes, bytes32));
+            _finalizeTrainingJob(jobId, attestationHash, teeKey, listRef, historyRef, outputRef, proofHash);
+        } else {
+            (uint256 jobId, bytes memory listRef, bytes32 historyRef, bytes32 reasonHash) =
+                abi.decode(payload, (uint256, bytes, bytes32, bytes32));
+            TrainingJob storage job = _activeJob(jobId);
+            if (listRef.length == 0 || historyRef == bytes32(0)) revert InvalidHash();
+            Dataset storage dataset = datasets[job.datasetId];
+            dataset.granteeListRef = listRef;
+            dataset.actHistoryRef = historyRef;
+            emit DatasetActRootUpdated(job.datasetId, listRef, historyRef);
+            _refundFailedJob(jobId, reasonHash);
+        }
     }
 
     function claimExpiredRefund(uint256 jobId) external nonReentrant {
         TrainingJob storage job = _activeJob(jobId);
         EphemeralJobVault(job.vault).claimExpiredRefundFor(msg.sender);
         job.state = JobState.Refunded;
-        emit TrainingJobRefunded(
-            jobId,
-            job.vault,
-            job.builder,
-            keccak256("EXECUTION_DEADLINE_EXPIRED")
-        );
+        delete activeJobIdByDataset[job.datasetId];
+        emit TrainingJobRefunded(jobId, job.vault, job.builder, keccak256("EXECUTION_DEADLINE_EXPIRED"));
     }
 
     function syncJobState(uint256 jobId) external returns (JobState state) {
@@ -423,9 +396,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         job.state = state;
     }
 
-    function getHospital(address hospital) external view returns (Hospital memory) {
-        return hospitals[hospital];
-    }
+    function getHospital(address hospital) external view returns (Hospital memory) { return hospitals[hospital]; }
 
     function getDataset(uint256 datasetId) external view returns (Dataset memory) {
         Dataset memory dataset = datasets[datasetId];
@@ -439,20 +410,71 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         job.state = _vaultState(job.vault);
     }
 
+    function _finalizeTrainingJob(
+        uint256 jobId, bytes32 attestationHash, bytes memory teePublicKey,
+        bytes memory newGranteeListRef, bytes32 newActHistoryRef,
+        bytes memory outputModelRef, bytes32 executionProofHash
+    ) private {
+        _markJobRunning(jobId, attestationHash, teePublicKey, newGranteeListRef, newActHistoryRef);
+        _completeTrainingJob(jobId, outputModelRef, executionProofHash);
+    }
+
+    function _markJobRunning(
+        uint256 jobId, bytes32 attestationHash, bytes memory teePublicKey,
+        bytes memory newGranteeListRef, bytes32 newActHistoryRef
+    ) private {
+        TrainingJob storage job = _jobInState(jobId, JobState.Funded);
+        if (attestationHash == bytes32(0) || newActHistoryRef == bytes32(0)) revert InvalidHash();
+        if (teePublicKey.length == 0 || newGranteeListRef.length == 0) revert EmptyField();
+        bytes32 teePublicKeyHash = keccak256(teePublicKey);
+        EphemeralJobVault(job.vault).markRunning(attestationHash, teePublicKeyHash);
+        job.attestationHash = attestationHash;
+        job.teePublicKeyHash = teePublicKeyHash;
+        job.state = JobState.Running;
+        Dataset storage dataset = datasets[job.datasetId];
+        dataset.granteeListRef = newGranteeListRef;
+        dataset.actHistoryRef = newActHistoryRef;
+        emit DatasetActRootUpdated(job.datasetId, newGranteeListRef, newActHistoryRef);
+        emit TrainingJobStarted(jobId, job.vault, attestationHash, teePublicKeyHash, teePublicKey);
+    }
+
+    function _completeTrainingJob(uint256 jobId, bytes memory outputModelRef, bytes32 executionProofHash) private {
+        TrainingJob storage job = _jobInState(jobId, JobState.Running);
+        if (outputModelRef.length == 0 || executionProofHash == bytes32(0)) revert InvalidHash();
+        EphemeralJobVault(job.vault).complete(outputModelRef, executionProofHash);
+        job.outputModelRef = outputModelRef;
+        job.executionProofHash = executionProofHash;
+        job.state = JobState.Completed;
+        delete activeJobIdByDataset[job.datasetId];
+        emit TrainingJobCompleted(jobId, job.vault, outputModelRef, executionProofHash, job.hospital, job.paymentAmount);
+    }
+
+    function _refundFailedJob(uint256 jobId, bytes32 reasonHash) private {
+        if (reasonHash == bytes32(0)) revert InvalidHash();
+        TrainingJob storage job = _activeJob(jobId);
+        EphemeralJobVault(job.vault).refundFailure(reasonHash);
+        job.state = JobState.Refunded;
+        delete activeJobIdByDataset[job.datasetId];
+        emit TrainingJobRefunded(jobId, job.vault, job.builder, reasonHash);
+    }
+
     function _activeJob(uint256 jobId) private view returns (TrainingJob storage job) {
         job = jobs[jobId];
         if (job.vault == address(0)) revert JobNotFound(jobId);
-        JobState currentState = _vaultState(job.vault);
-        if (currentState != JobState.Funded && currentState != JobState.Running) {
-            revert InvalidJobState(jobId, JobState.Funded, currentState);
-        }
+        JobState current = _vaultState(job.vault);
+        if (current != JobState.Funded && current != JobState.Running) revert InvalidJobState(jobId, JobState.Funded, current);
     }
 
     function _jobInState(uint256 jobId, JobState expected) private view returns (TrainingJob storage job) {
         job = jobs[jobId];
         if (job.vault == address(0)) revert JobNotFound(jobId);
-        JobState currentState = _vaultState(job.vault);
-        if (currentState != expected) revert InvalidJobState(jobId, expected, currentState);
+        JobState current = _vaultState(job.vault);
+        if (current != expected) revert InvalidJobState(jobId, expected, current);
+    }
+
+    function _emitTrainingJobRequested(uint256 jobId) private {
+        TrainingJob storage job = jobs[jobId];
+        emit TrainingJobRequested(jobId, job.datasetId, job.builder, job.vault, job.encryptedModelRef, job.builderPublicKey, job.deadline);
     }
 
     function _vaultState(address vault) private view returns (JobState) {

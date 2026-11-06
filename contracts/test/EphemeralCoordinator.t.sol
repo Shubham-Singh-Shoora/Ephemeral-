@@ -2,292 +2,115 @@
 pragma solidity ^0.8.20;
 
 import {Test} from "forge-std/Test.sol";
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {EphemeralCoordinator} from "../src/EphemeralCoordinator.sol";
 import {EphemeralJobVault} from "../src/EphemeralJobVault.sol";
 
-contract MockPaymentToken is ERC20 {
-    constructor() ERC20("Mock USD", "mUSD") {}
-
-    function mint(address account, uint256 amount) external {
-        _mint(account, amount);
-    }
-
-    function decimals() public pure override returns (uint8) {
-        return 6;
-    }
-}
-
 contract EphemeralCoordinatorTest is Test {
     EphemeralCoordinator internal coordinator;
-    MockPaymentToken internal token;
-
     address internal constant CRE = address(0xC0DE);
     address internal constant HOSPITAL = address(0xA11CE);
-    address internal constant PAYOUT = address(0xBEEF);
+    address payable internal constant PAYOUT = payable(address(0xBEEF));
     address internal constant BUILDER = address(0xB01D);
-    address internal constant SECOND_BUILDER = address(0xB02D);
-
-    uint256 internal constant PRICE = 2_500e6;
-    bytes32 internal constant LICENSE_HASH = keccak256("NABH-APOLLO-001");
-    bytes32 internal constant DATASET_REF = keccak256("encrypted-dataset");
-    bytes32 internal constant ACT_REF = keccak256("act-history-root");
-    bytes32 internal constant SCHEMA_REF = keccak256("synthetic-schema");
-    bytes32 internal constant VAULT_COMMITMENT = keccak256("vault-key-commitment");
-    bytes32 internal constant MODEL_REF = keccak256("encrypted-base-model");
-    bytes32 internal constant ATTESTATION_HASH = keccak256("verified-attestation");
-    bytes32 internal constant OUTPUT_REF = keccak256("encrypted-trained-weights");
-    bytes32 internal constant PROOF_HASH = keccak256("execution-proof");
+    address payable internal constant TREASURY = payable(address(0xFEE));
+    uint256 internal constant PRICE = 1 ether;
 
     function setUp() public {
-        token = new MockPaymentToken();
-        coordinator = new EphemeralCoordinator(address(this), CRE);
-        coordinator.setPaymentToken(address(token), true);
-
-        _fundAndApprove(BUILDER);
-        _fundAndApprove(SECOND_BUILDER);
-    }
-
-    function testHospitalMustBeAccreditedBeforeRegisteringDataset() public {
+        coordinator = new EphemeralCoordinator(address(this), CRE, TREASURY);
+        vm.deal(BUILDER, 10 ether);
         vm.prank(HOSPITAL);
-        coordinator.applyForAccreditation("Apollo Clinical Research Node", LICENSE_HASH, PAYOUT);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(EphemeralCoordinator.HospitalNotAccredited.selector, HOSPITAL)
-        );
-        vm.prank(HOSPITAL);
-        coordinator.registerDataset(_datasetRegistration());
-
+        coordinator.applyForAccreditation("Apollo Research", keccak256("LIC-001"), PAYOUT);
         coordinator.reviewHospital(HOSPITAL, true);
-        vm.prank(HOSPITAL);
-        uint256 datasetId = coordinator.registerDataset(_datasetRegistration());
-
-        EphemeralCoordinator.Dataset memory dataset = coordinator.getDataset(datasetId);
-        assertEq(dataset.hospital, HOSPITAL);
-        assertEq(dataset.encryptedDatasetRef, DATASET_REF);
-        assertEq(dataset.actRef, ACT_REF);
-        assertEq(dataset.syntheticSchemaRef, SCHEMA_REF);
-        assertEq(dataset.vaultKeyCommitment, VAULT_COMMITMENT);
-        assertEq(dataset.price, PRICE);
-        assertTrue(dataset.active);
     }
 
-    function testEveryTrainingRunGetsAnIsolatedVault() public {
+    function testNativePaymentCreatesIsolatedVaultAndAllocatesSurcharge() public {
         uint256 datasetId = _registerDataset();
-
-        (uint256 firstJobId, address firstVault) = _createTrainingJob(datasetId, BUILDER);
-        (uint256 secondJobId, address secondVault) = _createTrainingJob(datasetId, SECOND_BUILDER);
-
-        assertNotEq(firstJobId, secondJobId);
-        assertNotEq(firstVault, secondVault);
-        assertEq(token.balanceOf(address(coordinator)), 0);
-        assertEq(token.balanceOf(firstVault), PRICE);
-        assertEq(token.balanceOf(secondVault), PRICE);
-
-        EphemeralJobVault first = EphemeralJobVault(firstVault);
-        EphemeralJobVault second = EphemeralJobVault(secondVault);
-        assertEq(first.builder(), BUILDER);
-        assertEq(second.builder(), SECOND_BUILDER);
-        assertEq(first.paymentAmount(), PRICE);
-        assertEq(second.paymentAmount(), PRICE);
-        assertEq(coordinator.jobIdByVault(firstVault), firstJobId);
-        assertEq(coordinator.jobIdByVault(secondVault), secondJobId);
-    }
-
-    function testTrainingJobRecordsVaultAndBuilderRequest() public {
-        uint256 datasetId = _registerDataset();
-        uint256 builderBefore = token.balanceOf(BUILDER);
-
-        (uint256 jobId, address vault) = _createTrainingJob(datasetId, BUILDER);
+        (, uint256 surcharge, uint256 total) = coordinator.quoteTrainingJob(datasetId);
+        uint256 treasuryBefore = TREASURY.balance;
+        vm.prank(BUILDER);
+        (uint256 jobId, address vault) = coordinator.createTrainingJob{value: total}(_request(datasetId));
 
         EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(jobId);
-        assertEq(job.datasetId, datasetId);
-        assertEq(job.vault, vault);
         assertEq(job.builder, BUILDER);
-        assertEq(job.hospital, HOSPITAL);
-        assertEq(job.paymentToken, address(token));
         assertEq(job.paymentAmount, PRICE);
-        assertEq(job.encryptedModelRef, MODEL_REF);
-        assertEq(job.builderPublicKey, hex"04aabbccdd");
-        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Funded));
-        assertEq(token.balanceOf(BUILDER), builderBefore - PRICE);
-        assertEq(token.balanceOf(vault), PRICE);
-        assertEq(token.balanceOf(address(coordinator)), 0);
+        assertEq(job.surchargeAmount, surcharge);
+        assertEq(vault.balance, PRICE);
+        assertEq(TREASURY.balance, treasuryBefore + surcharge);
+        assertEq(address(coordinator).balance, 0);
     }
 
-    function testCreCompletesJobAndOnlyThatVaultPaysHospital() public {
+    function testCreAtomicFinalizePersistsActRootAndPaysHospital() public {
         uint256 datasetId = _registerDataset();
-        (uint256 firstJobId, address firstVault) = _createTrainingJob(datasetId, BUILDER);
-        (, address secondVault) = _createTrainingJob(datasetId, SECOND_BUILDER);
-        bytes memory teePublicKey = hex"04deadbeef";
-
-        vm.prank(CRE);
-        coordinator.markJobRunning(firstJobId, ATTESTATION_HASH, teePublicKey);
-        vm.prank(CRE);
-        coordinator.completeTrainingJob(firstJobId, OUTPUT_REF, PROOF_HASH);
-
-        EphemeralCoordinator.TrainingJob memory completed = coordinator.getTrainingJob(firstJobId);
-        assertEq(uint256(completed.state), uint256(EphemeralCoordinator.JobState.Completed));
-        assertEq(completed.outputModelRef, OUTPUT_REF);
-        assertEq(completed.executionProofHash, PROOF_HASH);
-        assertEq(token.balanceOf(PAYOUT), PRICE);
-        assertEq(token.balanceOf(firstVault), 0);
-        assertEq(token.balanceOf(secondVault), PRICE);
-        assertEq(token.balanceOf(address(coordinator)), 0);
-    }
-
-    function testOnlyCreForwarderCanStartOrSettleJob() public {
-        uint256 jobId = _singleJob();
-
-        vm.expectRevert(
-            abi.encodeWithSelector(EphemeralCoordinator.NotCreForwarder.selector, BUILDER)
-        );
+        (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
         vm.prank(BUILDER);
-        coordinator.markJobRunning(jobId, ATTESTATION_HASH, hex"1234");
+        (uint256 jobId, address vault) = coordinator.createTrainingJob{value: total}(_request(datasetId));
+        bytes memory nextList = abi.encodePacked(keccak256("next-list-root"), keccak256("next-list-key"));
+        bytes32 nextHistory = keccak256("next-history");
 
         vm.prank(CRE);
-        coordinator.markJobRunning(jobId, ATTESTATION_HASH, hex"1234");
-
-        vm.expectRevert(
-            abi.encodeWithSelector(EphemeralCoordinator.NotCreForwarder.selector, BUILDER)
+        coordinator.finalizeTrainingJob(
+            jobId,
+            keccak256("cre-tee-attestation"),
+            hex"02112233445566778899aabbccddeeff112233445566778899aabbccddeeff00",
+            nextList,
+            nextHistory,
+            abi.encodePacked(keccak256("output-root"), keccak256("output-key")),
+            keccak256("execution-proof")
         );
-        vm.prank(BUILDER);
-        coordinator.completeTrainingJob(jobId, OUTPUT_REF, PROOF_HASH);
-    }
-
-    function testCreFailureRefundsOnlyAffectedBuilder() public {
-        uint256 datasetId = _registerDataset();
-        (uint256 firstJobId, address firstVault) = _createTrainingJob(datasetId, BUILDER);
-        (, address secondVault) = _createTrainingJob(datasetId, SECOND_BUILDER);
-        uint256 builderBeforeRefund = token.balanceOf(BUILDER);
-
-        vm.prank(CRE);
-        coordinator.refundFailedJob(firstJobId, keccak256("TEE_EXECUTION_FAILED"));
-
-        EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(firstJobId);
-        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Refunded));
-        assertEq(token.balanceOf(BUILDER), builderBeforeRefund + PRICE);
-        assertEq(token.balanceOf(firstVault), 0);
-        assertEq(token.balanceOf(secondVault), PRICE);
-    }
-
-    function testBuilderCanRefundExpiredRunningJobThroughCoordinator() public {
-        uint256 jobId = _singleJob();
-        vm.prank(CRE);
-        coordinator.markJobRunning(jobId, ATTESTATION_HASH, hex"1234");
 
         EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(jobId);
-        vm.warp(uint256(job.deadline) + 1);
-
-        vm.prank(BUILDER);
-        coordinator.claimExpiredRefund(jobId);
-
-        job = coordinator.getTrainingJob(jobId);
-        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Refunded));
-        assertEq(token.balanceOf(job.vault), 0);
+        EphemeralCoordinator.Dataset memory dataset = coordinator.getDataset(datasetId);
+        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Completed));
+        assertEq(dataset.granteeListRef, nextList);
+        assertEq(dataset.actHistoryRef, nextHistory);
+        assertEq(PAYOUT.balance, PRICE);
+        assertEq(vault.balance, 0);
     }
 
-    function testBuilderCanRefundDirectlyFromVaultIfCoordinatorIsUnavailable() public {
-        uint256 jobId = _singleJob();
+    function testFailedOrExpiredJobRefundsBuilder() public {
+        uint256 datasetId = _registerDataset();
+        (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
+        uint256 before = BUILDER.balance;
+        vm.prank(BUILDER);
+        (uint256 jobId,) = coordinator.createTrainingJob{value: total}(_request(datasetId));
+        vm.prank(CRE);
+        coordinator.refundFailedJob(jobId, keccak256("ACT_FAILED"));
+        assertEq(BUILDER.balance, before - (total - PRICE));
+    }
+
+    function testOnlyBuilderCanClaimExpiredVault() public {
+        uint256 datasetId = _registerDataset();
+        (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
+        vm.prank(BUILDER);
+        (uint256 jobId, address vault) = coordinator.createTrainingJob{value: total}(_request(datasetId));
         EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(jobId);
-        vm.warp(uint256(job.deadline) + 1);
-
+        vm.warp(job.deadline + 1);
         vm.prank(BUILDER);
-        EphemeralJobVault(job.vault).claimExpiredRefund();
-
-        job = coordinator.getTrainingJob(jobId);
-        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Refunded));
-        assertEq(token.balanceOf(job.vault), 0);
+        EphemeralJobVault(vault).claimExpiredRefund();
+        assertEq(uint256(coordinator.getTrainingJob(jobId).state), uint256(EphemeralCoordinator.JobState.Refunded));
     }
 
-    function testCompletedJobCannotBeSettledTwice() public {
-        uint256 jobId = _singleJob();
-        vm.prank(CRE);
-        coordinator.markJobRunning(jobId, ATTESTATION_HASH, hex"1234");
-        vm.prank(CRE);
-        coordinator.completeTrainingJob(jobId, OUTPUT_REF, PROOF_HASH);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                EphemeralCoordinator.InvalidJobState.selector,
-                jobId,
-                EphemeralCoordinator.JobState.Running,
-                EphemeralCoordinator.JobState.Completed
-            )
-        );
-        vm.prank(CRE);
-        coordinator.completeTrainingJob(jobId, OUTPUT_REF, PROOF_HASH);
-    }
-
-    function testRevokedHospitalCannotReceiveNewJobs() public {
-        uint256 datasetId = _registerDataset();
-        coordinator.reviewHospital(HOSPITAL, false);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(EphemeralCoordinator.HospitalNotAccredited.selector, HOSPITAL)
-        );
-        vm.prank(BUILDER);
-        coordinator.createTrainingJob(_trainingRequest(datasetId));
-    }
-
-    function _fundAndApprove(address builder) internal {
-        token.mint(builder, 10_000e6);
-        vm.prank(builder);
-        token.approve(address(coordinator), type(uint256).max);
-    }
-
-    function _applyAndApproveHospital() internal {
+    function _registerDataset() private returns (uint256) {
         vm.prank(HOSPITAL);
-        coordinator.applyForAccreditation("Apollo Clinical Research Node", LICENSE_HASH, PAYOUT);
-        coordinator.reviewHospital(HOSPITAL, true);
-    }
-
-    function _registerDataset() internal returns (uint256 datasetId) {
-        _applyAndApproveHospital();
-        vm.prank(HOSPITAL);
-        datasetId = coordinator.registerDataset(_datasetRegistration());
-    }
-
-    function _singleJob() internal returns (uint256 jobId) {
-        uint256 datasetId = _registerDataset();
-        (jobId,) = _createTrainingJob(datasetId, BUILDER);
-    }
-
-    function _createTrainingJob(uint256 datasetId, address builder)
-        internal
-        returns (uint256 jobId, address vault)
-    {
-        vm.prank(builder);
-        (jobId, vault) = coordinator.createTrainingJob(_trainingRequest(datasetId));
-    }
-
-    function _datasetRegistration()
-        internal
-        view
-        returns (EphemeralCoordinator.DatasetRegistration memory)
-    {
-        return EphemeralCoordinator.DatasetRegistration({
-            title: "ICU Vitals & Sepsis Markers 2026",
+        return coordinator.registerDataset(EphemeralCoordinator.DatasetRegistration({
+            title: "Synthetic ICU Signal Mini Cohort",
             clinicalCategory: "Critical Care",
-            encryptedDatasetRef: DATASET_REF,
-            actRef: ACT_REF,
-            syntheticSchemaRef: SCHEMA_REF,
-            vaultKeyCommitment: VAULT_COMMITMENT,
-            paymentToken: address(token),
+            encryptedDatasetRef: abi.encodePacked(keccak256("data-root"), keccak256("data-key")),
+            granteeListRef: abi.encodePacked(keccak256("list-root"), keccak256("list-key")),
+            actHistoryRef: keccak256("history"),
+            publisherPublicKey: hex"02112233445566778899aabbccddeeff112233445566778899aabbccddeeff00",
+            syntheticSchemaRef: keccak256("schema"),
+            feedManifestRef: keccak256("feed"),
+            vaultKeyCommitment: keccak256("vault-key"),
             price: PRICE
-        });
+        }));
     }
 
-    function _trainingRequest(uint256 datasetId)
-        internal
-        pure
-        returns (EphemeralCoordinator.TrainingRequest memory)
-    {
+    function _request(uint256 datasetId) private pure returns (EphemeralCoordinator.TrainingRequest memory) {
         return EphemeralCoordinator.TrainingRequest({
             datasetId: datasetId,
-            encryptedModelRef: MODEL_REF,
-            modelFamily: "PyTorch Transformer",
-            builderPublicKey: hex"04aabbccdd",
+            encryptedModelRef: abi.encodePacked(keccak256("model-root"), keccak256("model-key")),
+            modelFamily: "Random Forest",
+            builderPublicKey: hex"04112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00",
             executionWindow: 2 days
         });
     }

@@ -1,24 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title EphemeralJobVault
-/// @notice Isolated payment vault for one confidential training run.
-/// @dev The coordinator deploys one vault per job and is the only execution controller.
-///      The builder retains a permissionless timeout refund path.
+/// @notice Isolated native-xDAI escrow for one confidential training run.
 contract EphemeralJobVault is ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
-    enum State {
-        None,
-        Funded,
-        Running,
-        Completed,
-        Refunded
-    }
+    enum State { None, Funded, Running, Completed, Refunded }
 
     error ZeroAddress();
     error InvalidAmount();
@@ -28,16 +16,16 @@ contract EphemeralJobVault is ReentrancyGuard {
     error NotBuilder(address caller);
     error JobExpired();
     error JobNotExpired();
+    error NativeTransferFailed(address recipient, uint256 amount);
 
     event ExecutionStarted(bytes32 indexed attestationHash, bytes32 indexed teePublicKeyHash);
-    event PaymentReleased(bytes32 indexed outputModelRef, bytes32 indexed executionProofHash);
+    event PaymentReleased(bytes outputModelRef, bytes32 indexed executionProofHash);
     event PaymentRefunded(bytes32 indexed reasonHash);
 
     address public immutable coordinator;
     address public immutable builder;
     address public immutable hospital;
-    address public immutable payoutAddress;
-    IERC20 public immutable paymentToken;
+    address payable public immutable payoutAddress;
     uint256 public immutable paymentAmount;
     uint256 public immutable datasetId;
     uint64 public immutable deadline;
@@ -45,7 +33,7 @@ contract EphemeralJobVault is ReentrancyGuard {
     State public state = State.Funded;
     bytes32 public attestationHash;
     bytes32 public teePublicKeyHash;
-    bytes32 public outputModelRef;
+    bytes public outputModelRef;
     bytes32 public executionProofHash;
 
     modifier onlyCoordinator() {
@@ -57,24 +45,20 @@ contract EphemeralJobVault is ReentrancyGuard {
         address coordinator_,
         address builder_,
         address hospital_,
-        address payoutAddress_,
-        address paymentToken_,
-        uint256 paymentAmount_,
+        address payable payoutAddress_,
         uint256 datasetId_,
         uint64 deadline_
-    ) {
+    ) payable {
         if (
             coordinator_ == address(0) || builder_ == address(0) || hospital_ == address(0)
-                || payoutAddress_ == address(0) || paymentToken_ == address(0)
+                || payoutAddress_ == address(0)
         ) revert ZeroAddress();
-        if (paymentAmount_ == 0) revert InvalidAmount();
-
+        if (msg.value == 0) revert InvalidAmount();
         coordinator = coordinator_;
         builder = builder_;
         hospital = hospital_;
         payoutAddress = payoutAddress_;
-        paymentToken = IERC20(paymentToken_);
-        paymentAmount = paymentAmount_;
+        paymentAmount = msg.value;
         datasetId = datasetId_;
         deadline = deadline_;
     }
@@ -83,26 +67,24 @@ contract EphemeralJobVault is ReentrancyGuard {
         _requireState(State.Funded);
         if (block.timestamp > deadline) revert JobExpired();
         if (attestationHash_ == bytes32(0) || teePublicKeyHash_ == bytes32(0)) revert InvalidHash();
-
         attestationHash = attestationHash_;
         teePublicKeyHash = teePublicKeyHash_;
         state = State.Running;
         emit ExecutionStarted(attestationHash_, teePublicKeyHash_);
     }
 
-    function complete(bytes32 outputModelRef_, bytes32 executionProofHash_)
+    function complete(bytes calldata outputModelRef_, bytes32 executionProofHash_)
         external
         onlyCoordinator
         nonReentrant
     {
         _requireState(State.Running);
         if (block.timestamp > deadline) revert JobExpired();
-        if (outputModelRef_ == bytes32(0) || executionProofHash_ == bytes32(0)) revert InvalidHash();
-
+        if (outputModelRef_.length == 0 || executionProofHash_ == bytes32(0)) revert InvalidHash();
         outputModelRef = outputModelRef_;
         executionProofHash = executionProofHash_;
         state = State.Completed;
-        paymentToken.safeTransfer(payoutAddress, paymentAmount);
+        _sendNative(payoutAddress, paymentAmount);
         emit PaymentReleased(outputModelRef_, executionProofHash_);
     }
 
@@ -130,8 +112,13 @@ contract EphemeralJobVault is ReentrancyGuard {
 
     function _refund(bytes32 reasonHash) private {
         state = State.Refunded;
-        paymentToken.safeTransfer(builder, paymentAmount);
+        _sendNative(payable(builder), paymentAmount);
         emit PaymentRefunded(reasonHash);
+    }
+
+    function _sendNative(address payable recipient, uint256 amount) private {
+        (bool sent,) = recipient.call{value: amount}("");
+        if (!sent) revert NativeTransferFailed(recipient, amount);
     }
 
     function _requireActive() private view {
