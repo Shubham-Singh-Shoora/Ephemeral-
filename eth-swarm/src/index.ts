@@ -24,3 +24,6 @@ export * from './downloader.js';
 
 // Export end-to-end pipeline orchestrator
 export * from './pipeline.js';
+
+// Export privacy-tiered synthetic schema generation used by hospital publishers.
+export * from './syntheticPreview.js';

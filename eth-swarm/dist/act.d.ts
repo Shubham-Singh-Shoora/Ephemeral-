@@ -11,13 +11,13 @@ export declare function normalizePublicKey(rawKey: string | Uint8Array | PublicK
  *
  * @param bee Bee client instance
  * @param batchId Postage Stamp Batch ID
- * @param datasetReference Swarm reference of the encrypted dataset
+ * @param granteeListReference Encrypted grantee-list reference returned by Bee
  * @param actHistoryAddress Previous ACT history address (from upload or previous patch)
  * @param teePublicKey Ephemeral public key of the TEE (PK_TEE)
  */
-export declare function grantTeeAccessToDataset(bee: Bee, batchId: string, datasetReference: string, actHistoryAddress: string, teePublicKey: string | Uint8Array | PublicKey): Promise<TeeGranteeResult>;
+export declare function grantTeeAccessToDataset(bee: Bee, batchId: string, granteeListReference: string, actHistoryAddress: string, teePublicKey: string | Uint8Array | PublicKey): Promise<TeeGranteeResult>;
 /**
  * Retrieves the currently authorized grantees on an ACT reference
  */
-export declare function getDatasetGrantees(bee: Bee, datasetReference: string): Promise<string[]>;
+export declare function getDatasetGrantees(bee: Bee, granteeListReference: string): Promise<string[]>;
 //# sourceMappingURL=act.d.ts.map

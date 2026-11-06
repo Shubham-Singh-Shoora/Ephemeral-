@@ -22,7 +22,7 @@ export declare class SwarmPipeline {
      * Step 5: Chainlink CRE / Vault DON Authorization Pipeline
      * Adds the verified TEE's ephemeral public key (PK_TEE) to the Swarm ACT Grantee Public Key Lookup List.
      */
-    chainlinkGrantTeeAccess(batchId: string, datasetReference: string, actHistoryAddress: string, teePublicKey: string): Promise<TeeGranteeResult>;
+    chainlinkGrantTeeAccess(batchId: string, granteeListReference: string, actHistoryAddress: string, teePublicKey: string): Promise<TeeGranteeResult>;
     /**
      * Step 6: Confidential TEE In-RAM Streaming & Decryption Pipeline
      * Streams 4KB encrypted chunks from Swarm DISC Storage via ACT,
@@ -45,6 +45,6 @@ export declare class SwarmPipeline {
      * Step 8: AI Builder Model Delivery Pipeline
      * Downloads trained model from Swarm and decrypts locally using Builder's private key (SK_AI).
      */
-    builderDownloadModel(outputModelRef: string, builderPrivateKeyHex?: string): Promise<Uint8Array>;
+    builderDownloadModel(outputModelRef: string, builderPrivateKeyHex: string): Promise<Uint8Array>;
 }
 //# sourceMappingURL=pipeline.d.ts.map

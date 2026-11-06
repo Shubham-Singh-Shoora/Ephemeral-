@@ -7,4 +7,5 @@ export * from './feeds.js';
 export * from './uploader.js';
 export * from './downloader.js';
 export * from './pipeline.js';
+export * from './syntheticPreview.js';
 //# sourceMappingURL=index.d.ts.map

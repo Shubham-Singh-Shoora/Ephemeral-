@@ -2,6 +2,16 @@ import { Topic, EthAddress, PrivateKey } from '@ethersphere/bee-js';
 import { strip0x, toHexBytes32 } from './encryption.js';
 import { normalizeBatchId } from './stamps.js';
 /**
+ * Creates a deterministic topic for a general-purpose mutable Swarm feed.
+ * Use a stable namespace so the feed manifest remains unchanged across uploads.
+ */
+export function deriveFeedTopic(namespace) {
+    const normalized = namespace.trim();
+    if (!normalized)
+        throw new Error('Feed topic namespace cannot be empty');
+    return Topic.fromString(normalized);
+}
+/**
  * Creates a deterministic 32-byte Swarm feed topic for a dataset
  */
 export function deriveDatasetTopic(datasetIdOrTitle, versionSuffix = 'v1') {

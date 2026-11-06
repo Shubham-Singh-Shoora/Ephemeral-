@@ -1,5 +1,5 @@
 import { PublicKey } from '@ethersphere/bee-js';
-import { toHexBytes32, strip0x } from './encryption.js';
+import { strip0x, validateSwarmReference } from './encryption.js';
 import { normalizeBatchId } from './stamps.js';
 /**
  * Normalizes a public key hex string into a Bee-compatible PublicKey object (64 bytes).
@@ -9,7 +9,7 @@ export function normalizePublicKey(rawKey) {
     if (rawKey instanceof PublicKey) {
         return rawKey;
     }
-    let hex = typeof rawKey === 'string' ? strip0x(rawKey).trim() : Buffer.from(rawKey).toString('hex');
+    let hex = typeof rawKey === 'string' ? strip0x(rawKey).trim() : Array.from(rawKey, b => b.toString(16).padStart(2, '0')).join('');
     // If 65 bytes (130 hex chars) with '04' uncompressed prefix, strip leading '04'
     if (hex.length === 130 && hex.startsWith('04')) {
         hex = hex.slice(2);
@@ -26,34 +26,35 @@ export function normalizePublicKey(rawKey) {
  *
  * @param bee Bee client instance
  * @param batchId Postage Stamp Batch ID
- * @param datasetReference Swarm reference of the encrypted dataset
+ * @param granteeListReference Encrypted grantee-list reference returned by Bee
  * @param actHistoryAddress Previous ACT history address (from upload or previous patch)
  * @param teePublicKey Ephemeral public key of the TEE (PK_TEE)
  */
-export async function grantTeeAccessToDataset(bee, batchId, datasetReference, actHistoryAddress, teePublicKey) {
+export async function grantTeeAccessToDataset(bee, batchId, granteeListReference, actHistoryAddress, teePublicKey) {
     const normalizedBatchId = normalizeBatchId(batchId);
-    const normalizedDatasetRef = strip0x(datasetReference);
-    const normalizedHistoryRef = strip0x(actHistoryAddress);
+    const normalizedGranteeListRef = validateSwarmReference(granteeListReference);
+    const normalizedHistoryRef = validateSwarmReference(actHistoryAddress);
     const granteeKey = normalizePublicKey(teePublicKey);
     // Patch ACT on Swarm by adding the TEE public key to the Grantee list
-    const patchResult = await bee.grantee.patch(normalizedBatchId, normalizedDatasetRef, normalizedHistoryRef, {
+    const patchResult = await bee.grantee.patch(normalizedBatchId, normalizedGranteeListRef, normalizedHistoryRef, {
         add: [granteeKey],
     });
+    const newGranteeListRef = patchResult.ref.toHex();
     const newHistoryRef = patchResult.historyref.toHex();
     return {
-        actRef: normalizedHistoryRef,
+        granteeListRef: newGranteeListRef,
+        previousHistoryRef: normalizedHistoryRef,
         newHistoryRef,
-        newHistoryRefBytes32: toHexBytes32(newHistoryRef),
-        teePublicKey: granteeKey.toHex(),
+        teePublicKeyCompressed: granteeKey.toCompressedHex(),
         status: patchResult.status,
     };
 }
 /**
  * Retrieves the currently authorized grantees on an ACT reference
  */
-export async function getDatasetGrantees(bee, datasetReference) {
-    const normalizedDatasetRef = strip0x(datasetReference);
-    const result = await bee.grantee.get(normalizedDatasetRef);
-    return result.grantees.map(pk => pk.toHex());
+export async function getDatasetGrantees(bee, granteeListReference) {
+    const normalizedRef = validateSwarmReference(granteeListReference);
+    const result = await bee.grantee.get(normalizedRef);
+    return result.grantees.map(pk => pk.toCompressedHex());
 }
 //# sourceMappingURL=act.js.map

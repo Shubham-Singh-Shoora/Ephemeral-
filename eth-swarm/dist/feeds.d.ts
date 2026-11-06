@@ -1,5 +1,10 @@
 import { Bee, Topic, EthAddress, PrivateKey } from '@ethersphere/bee-js';
 /**
+ * Creates a deterministic topic for a general-purpose mutable Swarm feed.
+ * Use a stable namespace so the feed manifest remains unchanged across uploads.
+ */
+export declare function deriveFeedTopic(namespace: string): Topic;
+/**
  * Creates a deterministic 32-byte Swarm feed topic for a dataset
  */
 export declare function deriveDatasetTopic(datasetIdOrTitle: string, versionSuffix?: string): Topic;

@@ -25,5 +25,5 @@ export declare function downloadEncryptedDatasetForTee(bee: Bee, datasetReferenc
  * - AI Builder downloads encrypted weights from Swarm DISC Storage
  * - Decrypts model weights locally
  */
-export declare function downloadTrainedModelForBuilder(bee: Bee, outputModelRef: string, decryptionKey?: Uint8Array): Promise<Uint8Array>;
+export declare function downloadTrainedModelForBuilder(bee: Bee, outputModelRef: string, builderPrivateKey: string): Promise<Uint8Array>;
 //# sourceMappingURL=downloader.d.ts.map

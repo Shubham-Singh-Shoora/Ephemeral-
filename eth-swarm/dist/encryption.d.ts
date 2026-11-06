@@ -1,7 +1,10 @@
 /**
- * Normalizes a hex string or Swarm reference to a 32-byte 0x-prefixed hex string
+ * Converts exactly 32 bytes to bytes32. Longer encrypted Swarm references must
+ * be represented as dynamic bytes and are deliberately rejected here.
  */
 export declare function toHexBytes32(input: string | Uint8Array): `0x${string}`;
+export declare function toHexBytes(input: string | Uint8Array): `0x${string}`;
+export declare function validateSwarmReference(reference: string): string;
 /**
  * Strips '0x' prefix from a string
  */
@@ -59,4 +62,11 @@ export declare function generateSecp256k1Keypair(): {
  * Computes an ECDH shared secret between a private key and a public key
  */
 export declare function computeEcdhSharedSecret(privateKeyHex: string, publicKeyHex: string): `0x${string}`;
+export interface PublicKeyEnvelope {
+    ephemeralPublicKey: `0x${string}`;
+    ciphertext: `0x${string}`;
+}
+/** ECIES-style envelope: ephemeral secp256k1 ECDH followed by AES-256-GCM. */
+export declare function encryptForPublicKey(plaintext: Uint8Array | string, recipientPublicKey: string): Promise<PublicKeyEnvelope>;
+export declare function decryptWithPrivateKey(envelope: PublicKeyEnvelope, recipientPrivateKey: string): Promise<Uint8Array>;
 //# sourceMappingURL=encryption.d.ts.map

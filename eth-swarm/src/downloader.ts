@@ -1,6 +1,6 @@
-import { Bee, PublicKey, Reference } from '@ethersphere/bee-js';
+import { Bee, PublicKey } from '@ethersphere/bee-js';
 import type { SyntheticSchema } from './types.js';
-import { decryptAesGcm, strip0x } from './encryption.js';
+import { decryptAesGcm, decryptWithPrivateKey, strip0x } from './encryption.js';
 
 /**
  * Downloads and parses the public synthetic dummy schema.
@@ -13,7 +13,7 @@ export async function downloadSyntheticSchema(
   const cleanRef = strip0x(schemaReference);
   const fileData = await bee.file.download(cleanRef);
   const bytes = fileData.data.toUint8Array();
-  const text = Buffer.from(bytes).toString('utf-8');
+  const text = new TextDecoder().decode(bytes);
   return JSON.parse(text) as SyntheticSchema;
 }
 
@@ -50,27 +50,12 @@ export async function downloadEncryptedDatasetForTee(
   const fileData = await bee.file.download(cleanRef, undefined, downloadOptions);
   const rawBytes = fileData.data.toUint8Array();
 
-  // If a local AES-256 decryption key was provided (from Chainlink Vault DON shares)
-  if (options?.decryptionKey) {
-    try {
-      const decrypted = await decryptAesGcm(rawBytes, options.decryptionKey);
-      return {
-        rawData: decrypted,
-        filename: fileData.name,
-        contentType: fileData.contentType,
-      };
-    } catch {
-      // If direct decrypt failed, rawBytes might have already been decrypted by Bee node
-      return {
-        rawData: rawBytes,
-        filename: fileData.name,
-        contentType: fileData.contentType,
-      };
-    }
+  if (!options?.decryptionKey) {
+    throw new Error('A reconstructed Vault DON AES key is required to decrypt this dataset');
   }
-
+  const decrypted = await decryptAesGcm(rawBytes, options.decryptionKey);
   return {
-    rawData: rawBytes,
+    rawData: decrypted,
     filename: fileData.name,
     contentType: fileData.contentType,
   };
@@ -84,19 +69,18 @@ export async function downloadEncryptedDatasetForTee(
 export async function downloadTrainedModelForBuilder(
   bee: Bee,
   outputModelRef: string,
-  decryptionKey?: Uint8Array
+  builderPrivateKey: string
 ): Promise<Uint8Array> {
   const cleanRef = strip0x(outputModelRef);
   const fileData = await bee.file.download(cleanRef);
-  const rawBytes = fileData.data.toUint8Array();
-
-  if (decryptionKey) {
-    try {
-      return await decryptAesGcm(rawBytes, decryptionKey);
-    } catch {
-      return rawBytes;
-    }
+  const payload = JSON.parse(new TextDecoder().decode(fileData.data.toUint8Array())) as {
+    version: number;
+    algorithm: string;
+    ephemeralPublicKey: `0x${string}`;
+    ciphertext: `0x${string}`;
+  };
+  if (payload.version !== 1 || payload.algorithm !== 'secp256k1-ecdh+a256gcm') {
+    throw new Error('Unsupported encrypted model envelope');
   }
-
-  return rawBytes;
+  return decryptWithPrivateKey(payload, builderPrivateKey);
 }

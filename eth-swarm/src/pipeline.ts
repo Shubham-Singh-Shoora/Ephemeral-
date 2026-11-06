@@ -58,14 +58,14 @@ export class SwarmPipeline {
    */
   async chainlinkGrantTeeAccess(
     batchId: string,
-    datasetReference: string,
+    granteeListReference: string,
     actHistoryAddress: string,
     teePublicKey: string
   ): Promise<TeeGranteeResult> {
     return grantTeeAccessToDataset(
       this.bee,
       batchId,
-      datasetReference,
+      granteeListReference,
       actHistoryAddress,
       teePublicKey
     );
@@ -113,8 +113,8 @@ export class SwarmPipeline {
    */
   async builderDownloadModel(
     outputModelRef: string,
-    builderPrivateKeyHex?: string
+    builderPrivateKeyHex: string
   ): Promise<Uint8Array> {
-    return downloadTrainedModelForBuilder(this.bee, outputModelRef);
+    return downloadTrainedModelForBuilder(this.bee, outputModelRef, builderPrivateKeyHex);
   }
 }

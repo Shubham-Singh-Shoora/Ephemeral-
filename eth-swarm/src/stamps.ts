@@ -66,8 +66,8 @@ export async function findUsableBatch(
       }
     }
     return null;
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`Unable to inspect Bee postage stamps: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -87,7 +87,9 @@ export async function createPostageStamp(
   }
 ): Promise<string> {
   const depth = options?.depth ?? 17;
-  const amount = options?.amount ?? '10000000';
+  // Bee enforces roughly one day of TTL; this is the smallest practical default
+  // at the current local-node price and avoids overfunding demo feeds.
+  const amount = options?.amount ?? '3500000000';
   const immutable = options?.immutable ?? true;
   const label = options?.label ?? (immutable ? 'dataset-immutable-stamp' : 'feed-mutable-stamp');
 
@@ -111,16 +113,14 @@ export async function ensurePostageStamp(
 ): Promise<string> {
   if (preferredBatchId && preferredBatchId.trim()) {
     const normalized = normalizeBatchId(preferredBatchId);
-    try {
-      const stamp = await getPostageStamp(bee, normalized);
-      if (stamp.usable) {
-        return stamp.batchId;
-      }
-    } catch {
-      // If node lookup fails, still return normalized ID if user provided it explicitly
-      return normalized;
+    const stamp = await getPostageStamp(bee, normalized);
+    if (!stamp.usable) {
+      throw new Error(`Postage stamp ${normalized} is not usable`);
     }
-    return normalized;
+    if (options?.immutable !== undefined && stamp.immutable !== options.immutable) {
+      throw new Error(`Postage stamp ${normalized} has immutable=${stamp.immutable}; expected ${options.immutable}`);
+    }
+    return stamp.batchId;
   }
 
   // Look for any existing usable batch on node
@@ -134,10 +134,16 @@ export async function ensurePostageStamp(
     try {
       return await createPostageStamp(bee, { immutable: options?.immutable ?? true });
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const minimum = message.match(/Amount has to be at least\s+(\d+)/i)?.[1];
+      if (minimum) {
+        return createPostageStamp(bee, {
+          amount: minimum,
+          immutable: options?.immutable ?? true,
+        });
+      }
       throw new Error(
-        `No usable postage stamp found on Bee node and failed to create new stamp: ${
-          err instanceof Error ? err.message : String(err)
-        }`
+        `No usable postage stamp found on Bee node and failed to create new stamp: ${message}`
       );
     }
   }

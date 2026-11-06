@@ -5,13 +5,7 @@ function getCrypto(): Crypto {
   if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.subtle) {
     return globalThis.crypto;
   }
-  try {
-    // Node.js fallback
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('node:crypto').webcrypto as Crypto;
-  } catch {
-    throw new Error('WebCrypto API is not available in the current environment.');
-  }
+  throw new Error('WebCrypto API is not available in the current environment.');
 }
 
 function toArrayBuffer(view: Uint8Array): ArrayBuffer {
@@ -21,20 +15,33 @@ function toArrayBuffer(view: Uint8Array): ArrayBuffer {
 }
 
 /**
- * Normalizes a hex string or Swarm reference to a 32-byte 0x-prefixed hex string
+ * Converts exactly 32 bytes to bytes32. Longer encrypted Swarm references must
+ * be represented as dynamic bytes and are deliberately rejected here.
  */
 export function toHexBytes32(input: string | Uint8Array): `0x${string}` {
-  if (typeof input !== 'string') {
-    return ethers.hexlify(input).slice(0, 66) as `0x${string}`;
+  const value = typeof input === 'string' ? input : ethers.hexlify(input);
+  const clean = strip0x(value);
+  if (!/^[0-9a-fA-F]{64}$/.test(clean)) {
+    throw new Error(`Expected exactly 32 bytes, received ${clean.length / 2} bytes`);
   }
-  const clean = input.startsWith('0x') ? input.slice(2) : input;
-  if (clean.length === 64) {
-    return `0x${clean}` as `0x${string}`;
+  return `0x${clean.toLowerCase()}`;
+}
+
+export function toHexBytes(input: string | Uint8Array): `0x${string}` {
+  const value = typeof input === 'string' ? input : ethers.hexlify(input);
+  const clean = strip0x(value);
+  if (!clean.length || clean.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(clean)) {
+    throw new Error('Expected a non-empty even-length hex value');
   }
-  if (clean.length > 64) {
-    return `0x${clean.slice(0, 64)}` as `0x${string}`;
+  return `0x${clean.toLowerCase()}`;
+}
+
+export function validateSwarmReference(reference: string): string {
+  const clean = strip0x(reference).toLowerCase();
+  if (!/^[0-9a-f]{64}([0-9a-f]{64})?$/.test(clean)) {
+    throw new Error('Invalid Swarm reference: expected 32 or 64 bytes');
   }
-  return `0x${clean.padStart(64, '0')}` as `0x${string}`;
+  return clean;
 }
 
 /**
@@ -299,4 +306,33 @@ export function computeEcdhSharedSecret(
   const signingKey = new ethers.SigningKey(privateKeyHex);
   const sharedSecret = signingKey.computeSharedSecret(publicKeyHex);
   return ethers.keccak256(sharedSecret) as `0x${string}`;
+}
+
+export interface PublicKeyEnvelope {
+  ephemeralPublicKey: `0x${string}`;
+  ciphertext: `0x${string}`;
+}
+
+/** ECIES-style envelope: ephemeral secp256k1 ECDH followed by AES-256-GCM. */
+export async function encryptForPublicKey(
+  plaintext: Uint8Array | string,
+  recipientPublicKey: string
+): Promise<PublicKeyEnvelope> {
+  const ephemeral = generateSecp256k1Keypair();
+  const sharedKey = ethers.getBytes(computeEcdhSharedSecret(ephemeral.privateKeyHex, recipientPublicKey));
+  const encrypted = await encryptAesGcm(plaintext, sharedKey);
+  return {
+    ephemeralPublicKey: ephemeral.publicKeyCompressedHex,
+    ciphertext: ethers.hexlify(encrypted.ciphertext) as `0x${string}`,
+  };
+}
+
+export async function decryptWithPrivateKey(
+  envelope: PublicKeyEnvelope,
+  recipientPrivateKey: string
+): Promise<Uint8Array> {
+  const sharedKey = ethers.getBytes(
+    computeEcdhSharedSecret(recipientPrivateKey, envelope.ephemeralPublicKey)
+  );
+  return decryptAesGcm(ethers.getBytes(envelope.ciphertext), sharedKey);
 }
