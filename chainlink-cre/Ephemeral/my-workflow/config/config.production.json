@@ -1,8 +1,11 @@
 {
   "coordinatorAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-  "beeApiUrl": "http://localhost:1633",
+  "beeApiUrl": "https://thicket-defuse-recount.ngrok-free.dev",
+  "beeAuthSecretId": "SWARM_BEE_AUTHORIZATION",
   "postageBatchId": "5a63c224ed75f8fac7fec10e3efa39e646744b41f263e222c104a8cf5dfd34e6",
   "chainSelectorName": "gnosis_chain-mainnet",
   "isTestnet": false,
-  "environment": "production"
+  "environment": "production",
+  "teePublicKey": "0x03c804f51f1faf82f50cd3bb134a3c4b0a260b79e75c756c8813d726749131bb5f",
+  "mockEnclaveMeasurement": "0xd2f286f865d9a637f08d68e8a53612dcf6f54df3c1c31e279a128df6215d5770"
 }

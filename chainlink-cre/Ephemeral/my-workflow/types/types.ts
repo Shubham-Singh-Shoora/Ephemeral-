@@ -1,45 +1,40 @@
 export type Config = {
   coordinatorAddress: `0x${string}`;
   beeApiUrl: string;
+  beeAuthSecretId: string;
   postageBatchId: string;
   chainSelectorName: string;
   isTestnet: boolean;
   environment: 'simulation' | 'staging' | 'production';
-};
-
-export type TrainingJobRequestEvent = {
-  jobId: number;
-  datasetId: number;
-  builder: string;
-  vaultAddress: string;
-  encryptedModelRef: string;
-  builderPublicKey: string;
-  deadline: number;
-  encryptedDatasetRef: string;
-  granteeListRef: string;
-  actHistoryRef: string;
-  publisherPublicKey: string;
-  syntheticSchemaRef: string;
-  vaultKeyCommitment: string;
-};
-
-export type RemoteAttestationQuote = {
   teePublicKey: `0x${string}`;
-  attestationReport: `0x${string}`;
-  enclaveMeasurement: `0x${string}`;
-  chipSignature: `0x${string}`;
+  mockEnclaveMeasurement: `0x${string}`;
 };
 
-export type ExecutionProofPayload = {
-  outputModelRef: `0x${string}`;
-  executionProofHash: `0x${string}`;
-  ramWiped: boolean;
+export type TrainingJobEvent = {
+  jobId: bigint;
+  datasetId: bigint;
+  builder: `0x${string}`;
+  vault: `0x${string}`;
+  encryptedModelRef: `0x${string}`;
+  builderPublicKey: `0x${string}`;
+  deadline: bigint;
+  transactionHash: `0x${string}`;
 };
 
-export type CleanRoomWorkflowInput = {
-  event: TrainingJobRequestEvent;
-  attestation: RemoteAttestationQuote;
-  completion?: ExecutionProofPayload;
+export type DatasetRecord = {
+  hospital: `0x${string}`;
+  title: string;
+  clinicalCategory: string;
+  encryptedDatasetRef: `0x${string}`;
+  granteeListRef: `0x${string}`;
+  actHistoryRef: `0x${string}`;
+  publisherPublicKey: `0x${string}`;
+  syntheticSchemaRef: `0x${string}`;
+  feedManifestRef: `0x${string}`;
+  vaultKeyCommitment: `0x${string}`;
+  price: bigint;
+  createdAt: bigint;
+  active: boolean;
 };
 
 export type SwarmActGrantResult = {
@@ -51,22 +46,15 @@ export type SwarmActGrantResult = {
   beeStatus: number;
 };
 
-export type EvmWriteResult = {
-  txStatus: number;
-  txHash?: string;
-  receiverStatus?: number;
-};
+export type EvmWriteResult = { txStatus: number; txHash?: string; receiverStatus?: number };
 
 export type CleanRoomWorkflowResult = {
-  status: 'PENDING_COMPLETION' | 'COMPLETED' | 'ACT_GRANT_FAILED';
-  jobId: number;
-  datasetId: number;
+  status: 'COMPLETED' | 'REFUND_SUBMITTED';
+  jobId: string;
+  datasetId: string;
   attestationHash: string;
+  outputModelRef?: string;
   swarmActGrant?: SwarmActGrantResult;
-  onChainActions: {
-    markJobRunning?: EvmWriteResult;
-    completeTrainingJob?: EvmWriteResult;
-    refundFailedJob?: EvmWriteResult;
-  };
+  onChainAction: EvmWriteResult;
   summary: string;
 };

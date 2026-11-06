@@ -1,4 +1,7 @@
+import type { TeeRuntime } from '@chainlink/cre-sdk';
 import type { SwarmActGrantResult } from '../types/types.js';
+import type { Config } from '../types/types.js';
+import { sendConfidentialBeeRequest } from './confidentialBeeClient.js';
 
 const cleanHex = (value: string) => value.startsWith('0x') ? value.slice(2) : value;
 
@@ -14,13 +17,13 @@ export function compressSecp256k1PublicKey(publicKey: string): string {
   return `${parseInt(y.slice(-2), 16) % 2 ? '03' : '02'}${x}`;
 }
 
-export async function grantTeeAccessOnSwarmAct(
-  beeApiUrl: string,
+export function grantTeeAccessOnSwarmAct(
+  runtime: TeeRuntime<Config>,
   postageBatchId: string,
   granteeListRef: string,
   actHistoryRef: string,
   teePublicKey: string
-): Promise<SwarmActGrantResult> {
+): SwarmActGrantResult {
   const listRef = cleanHex(granteeListRef);
   const historyRef = cleanHex(actHistoryRef);
   const batchId = cleanHex(postageBatchId);
@@ -29,7 +32,8 @@ export async function grantTeeAccessOnSwarmAct(
   if (!/^[0-9a-f]{64}$/.test(historyRef)) throw new Error('ACT history reference must be 32 bytes');
   if (!/^[0-9a-f]{64}$/.test(batchId)) throw new Error('Postage batch ID must be 32 bytes');
 
-  const response = await fetch(`${beeApiUrl.replace(/\/$/, '')}/grantee/${listRef}`, {
+  const response = sendConfidentialBeeRequest(runtime, {
+    path: `/grantee/${listRef}`,
     method: 'PATCH',
     headers: {
       'Swarm-Postage-Batch-Id': batchId,
@@ -38,9 +42,7 @@ export async function grantTeeAccessOnSwarmAct(
     },
     body: JSON.stringify({ add: [compressedKey] }),
   });
-  const body = await response.text();
-  if (!response.ok) throw new Error(`Bee ACT grant failed (${response.status}): ${body}`);
-  const json = JSON.parse(body) as { ref?: string; historyref?: string };
+  const json = JSON.parse(response.body) as { ref?: string; historyref?: string };
   if (!json.historyref || !json.ref) throw new Error('Bee ACT response omitted ref or historyref');
   return {
     success: true,
