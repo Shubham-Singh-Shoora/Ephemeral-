@@ -13,9 +13,7 @@ import {
 import {
   decodeEventLog,
   decodeFunctionResult,
-  encodeAbiParameters,
   encodeFunctionData,
-  keccak256,
   parseAbi,
   toEventSelector,
   type Address,
@@ -28,7 +26,9 @@ import type {
   DatasetRecord,
   EvmWriteResult,
   SwarmActGrantResult,
+  TrainingConvergenceConfig,
   TrainingJobEvent,
+  VerifiedAttestation,
 } from './types/types.js';
 import { grantTeeAccessOnSwarmAct } from './actions/swarmActGrant.js';
 import {
@@ -36,14 +36,15 @@ import {
   encodeRefundFailedJob,
   encodeRefundWithActRoot,
 } from './actions/coordinatorClient.js';
-import { runMockPreprocessing } from './actions/mockPreprocessor.js';
+import { attestEnclave, executeEnclaveTraining } from './actions/enclaveClient.js';
 
 const EVENT_ABI = parseAbi([
-  'event TrainingJobRequested(uint256 indexed jobId,uint256 indexed datasetId,address indexed builder,address vault,bytes encryptedModelRef,bytes builderPublicKey,uint64 deadline)',
+  'event TrainingJobRequested(uint256 indexed jobId,uint256 indexed datasetId,address indexed builder,address vault,bytes encryptedModelRef,string modelFamily,bytes builderPublicKey,bytes32 convergenceConfigHash,uint64 deadline)',
 ]);
 
 const COORDINATOR_ABI = parseAbi([
   'function getDataset(uint256 datasetId) view returns ((address hospital,string title,string clinicalCategory,bytes encryptedDatasetRef,bytes granteeListRef,bytes32 actHistoryRef,bytes publisherPublicKey,bytes32 syntheticSchemaRef,bytes32 feedManifestRef,bytes32 vaultKeyCommitment,uint256 price,uint64 createdAt,bool active) dataset)',
+  'function getTrainingConvergenceConfig(uint256 jobId) view returns ((string[] targetColumns,string[] featureColumns,uint8[] taskTypes,string modelProfile,string targetMetric,uint32 minTargetScorePpm,uint32 maxOverfitGapPpm,uint8 maxTrials,uint32 splitSeed) config)',
 ]);
 
 function networkFor(config: Config) {
@@ -79,9 +80,30 @@ function decodeJob(log: EVMLog): TrainingJobEvent {
   });
   const args = decoded.args as {
     jobId: bigint; datasetId: bigint; builder: Address; vault: Address;
-    encryptedModelRef: Hex; builderPublicKey: Hex; deadline: bigint;
+    encryptedModelRef: Hex; modelFamily: string; builderPublicKey: Hex;
+    convergenceConfigHash: Hex; deadline: bigint;
   };
   return { ...args, transactionHash: bytesToHex(log.txHash) };
+}
+
+function readConvergenceConfig(runtime: TeeRuntime<Config>, jobId: bigint): TrainingConvergenceConfig {
+  const network = networkFor(runtime.config);
+  const client = new cre.capabilities.EVMClient(network.chainSelector.selector);
+  const callData = encodeFunctionData({
+    abi: COORDINATOR_ABI,
+    functionName: 'getTrainingConvergenceConfig',
+    args: [jobId],
+  });
+  const result = client.callContract(runtime.usingTheDons(), {
+    call: encodeCallMsg({ from: zeroAddress, to: runtime.config.coordinatorAddress, data: callData }),
+    blockNumber: LAST_FINALIZED_BLOCK_NUMBER,
+  }).result();
+  const decoded = decodeFunctionResult({
+    abi: COORDINATOR_ABI,
+    functionName: 'getTrainingConvergenceConfig',
+    data: bytesToHex(result.data),
+  });
+  return decoded as TrainingConvergenceConfig;
 }
 
 function readDataset(runtime: TeeRuntime<Config>, datasetId: bigint): DatasetRecord {
@@ -99,60 +121,48 @@ function readDataset(runtime: TeeRuntime<Config>, datasetId: bigint): DatasetRec
   }) as DatasetRecord;
 }
 
-function attestMockRuntime(config: Config, job: TrainingJobEvent): Hex {
-  if (!/^0x[0-9a-fA-F]{64}$/.test(config.mockEnclaveMeasurement)) {
-    throw new Error('mockEnclaveMeasurement must be a bytes32 allowlisted build digest');
-  }
-  if (!/^0x(02|03)[0-9a-fA-F]{64}$/.test(config.teePublicKey)) {
-    throw new Error('teePublicKey must be a compressed secp256k1 public key');
-  }
-  return keccak256(encodeAbiParameters(
-    [{ type: 'bytes32' }, { type: 'bytes32' }, { type: 'bytes' }, { type: 'uint256' }],
-    [config.mockEnclaveMeasurement, job.transactionHash, config.teePublicKey, job.jobId]
-  ));
-}
-
 const onTrainingJobRequested = async (
   runtime: TeeRuntime<Config>,
   log: EVMLog
 ): Promise<string> => {
   const job = decodeJob(log);
-  const attestationHash = attestMockRuntime(runtime.config, job);
   runtime.log(`CRE confidential handler accepted Gnosis job ${job.jobId.toString()}`);
 
   let actGrant: SwarmActGrantResult | undefined;
+  let attestation: VerifiedAttestation | undefined;
   try {
     const dataset = readDataset(runtime, job.datasetId);
     if (!dataset.active) throw new Error('Dataset is no longer active');
+    const convergence = readConvergenceConfig(runtime, job.jobId);
+    attestation = await attestEnclave(runtime);
 
-    // The mock artifact is uploaded before ACT mutation. If upload fails, no ACT root can become stale.
-    const mockResult = runMockPreprocessing(runtime, job, dataset);
     actGrant = grantTeeAccessOnSwarmAct(
       runtime,
       runtime.config.postageBatchId,
       dataset.granteeListRef,
       dataset.actHistoryRef,
-      runtime.config.teePublicKey
+      attestation.teePublicKey
     );
+    const trainingResult = await executeEnclaveTraining({ runtime, job, dataset, config: convergence, attestation });
 
     const onChainAction = writeReport(runtime, encodeFinalizeTrainingJob({
       jobId: job.jobId,
-      attestationHash,
-      teePublicKey: runtime.config.teePublicKey,
+      attestationHash: attestation.attestationHash,
+      teePublicKey: attestation.teePublicKey,
       granteeListRef: `0x${actGrant.granteeListRef}`,
       actHistoryRef: `0x${actGrant.newActHistoryRef}`,
-      outputModelRef: mockResult.outputModelRef,
-      executionProofHash: mockResult.executionProofHash,
+      outputModelRef: trainingResult.outputModelSwarmHash,
+      executionProofHash: trainingResult.executionProofHash,
     }));
     const completed: CleanRoomWorkflowResult = {
       status: 'COMPLETED',
       jobId: job.jobId.toString(),
       datasetId: job.datasetId.toString(),
-      attestationHash,
-      outputModelRef: mockResult.outputModelRef,
+      attestationHash: attestation.attestationHash,
+      outputModelRef: trainingResult.outputModelSwarmHash,
       swarmActGrant: actGrant,
       onChainAction,
-      summary: 'ACT root persisted, mock preprocessing proof recorded, and isolated xDAI escrow payout submitted.',
+      summary: 'ACT root persisted, attested convergence proof verified, and isolated xDAI escrow payout submitted.',
     };
     return JSON.stringify(completed);
   } catch (error) {
@@ -170,7 +180,7 @@ const onTrainingJobRequested = async (
       status: 'REFUND_SUBMITTED',
       jobId: job.jobId.toString(),
       datasetId: job.datasetId.toString(),
-      attestationHash,
+      attestationHash: attestation?.attestationHash || `0x${'00'.repeat(32)}`,
       swarmActGrant: actGrant,
       onChainAction,
       summary: `Workflow failed and the builder refund was submitted: ${String(error)}`,
