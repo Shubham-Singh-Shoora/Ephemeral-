@@ -16,6 +16,12 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     uint256 public constant EXECUTION_RESERVE_BPS = 50;
     uint256 public constant PLATFORM_FEE_BPS = 200;
     uint256 public constant SURCHARGE_BPS = STORAGE_RESERVE_BPS + EXECUTION_RESERVE_BPS + PLATFORM_FEE_BPS;
+    uint256 public constant ENCRYPTED_SWARM_REFERENCE_LENGTH = 64;
+    uint256 public constant COMPRESSED_PUBLIC_KEY_LENGTH = 33;
+    uint256 public constant UNCOMPRESSED_PUBLIC_KEY_LENGTH = 65;
+    uint256 public constant MAX_NAME_LENGTH = 128;
+    uint256 public constant MAX_CATEGORY_LENGTH = 64;
+    uint256 public constant MAX_MODEL_FAMILY_LENGTH = 64;
 
     enum HospitalStatus { None, Pending, Accredited, Revoked }
     enum JobState { None, Funded, Running, Completed, Refunded }
@@ -88,6 +94,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     error ZeroAddress();
     error EmptyField();
+    error InvalidLength();
     error InvalidHash();
     error InvalidPrice();
     error InvalidExecutionWindow();
@@ -181,6 +188,7 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     function applyForAccreditation(string calldata name, bytes32 licenseIdHash, address payable payoutAddress) external {
         if (bytes(name).length == 0) revert EmptyField();
+        if (bytes(name).length > MAX_NAME_LENGTH) revert InvalidLength();
         if (licenseIdHash == bytes32(0)) revert InvalidHash();
         if (payoutAddress == address(0)) revert ZeroAddress();
         if (hospitals[msg.sender].status != HospitalStatus.None) revert HospitalAlreadyApplied(msg.sender);
@@ -221,9 +229,14 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     function registerDataset(DatasetRegistration calldata r) external returns (uint256 datasetId) {
         if (hospitals[msg.sender].status != HospitalStatus.Accredited) revert HospitalNotAccredited(msg.sender);
         if (bytes(r.title).length == 0 || bytes(r.clinicalCategory).length == 0) revert EmptyField();
+        if (bytes(r.title).length > MAX_NAME_LENGTH || bytes(r.clinicalCategory).length > MAX_CATEGORY_LENGTH) {
+            revert InvalidLength();
+        }
         if (
-            r.encryptedDatasetRef.length == 0 || r.granteeListRef.length == 0 || r.actHistoryRef == bytes32(0)
-                || r.publisherPublicKey.length == 0 || r.syntheticSchemaRef == bytes32(0)
+            r.encryptedDatasetRef.length != ENCRYPTED_SWARM_REFERENCE_LENGTH
+                || r.granteeListRef.length != ENCRYPTED_SWARM_REFERENCE_LENGTH
+                || r.actHistoryRef == bytes32(0) || !_validPublicKeyLength(r.publisherPublicKey.length)
+                || r.syntheticSchemaRef == bytes32(0) || r.feedManifestRef == bytes32(0)
                 || r.vaultKeyCommitment == bytes32(0)
         ) revert InvalidHash();
         if (r.price == 0) revert InvalidPrice();
@@ -273,8 +286,12 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
         if (dataset.hospital == address(0)) revert DatasetNotFound(request.datasetId);
         if (!dataset.active) revert DatasetInactive(request.datasetId);
         if (hospitals[dataset.hospital].status != HospitalStatus.Accredited) revert HospitalNotAccredited(dataset.hospital);
-        if (request.encryptedModelRef.length == 0) revert InvalidHash();
+        if (request.encryptedModelRef.length != ENCRYPTED_SWARM_REFERENCE_LENGTH) revert InvalidHash();
         if (bytes(request.modelFamily).length == 0 || request.builderPublicKey.length == 0) revert EmptyField();
+        if (
+            bytes(request.modelFamily).length > MAX_MODEL_FAMILY_LENGTH
+                || !_validPublicKeyLength(request.builderPublicKey.length)
+        ) revert InvalidLength();
         if (request.executionWindow < MIN_EXECUTION_WINDOW || request.executionWindow > MAX_EXECUTION_WINDOW) revert InvalidExecutionWindow();
         uint256 activeJobId = activeJobIdByDataset[request.datasetId];
         if (activeJobId != 0) {
@@ -425,7 +442,8 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
     ) private {
         TrainingJob storage job = _jobInState(jobId, JobState.Funded);
         if (attestationHash == bytes32(0) || newActHistoryRef == bytes32(0)) revert InvalidHash();
-        if (teePublicKey.length == 0 || newGranteeListRef.length == 0) revert EmptyField();
+        if (!_validPublicKeyLength(teePublicKey.length)) revert InvalidLength();
+        if (newGranteeListRef.length != ENCRYPTED_SWARM_REFERENCE_LENGTH) revert InvalidHash();
         bytes32 teePublicKeyHash = keccak256(teePublicKey);
         EphemeralJobVault(job.vault).markRunning(attestationHash, teePublicKeyHash);
         job.attestationHash = attestationHash;
@@ -440,7 +458,9 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     function _completeTrainingJob(uint256 jobId, bytes memory outputModelRef, bytes32 executionProofHash) private {
         TrainingJob storage job = _jobInState(jobId, JobState.Running);
-        if (outputModelRef.length == 0 || executionProofHash == bytes32(0)) revert InvalidHash();
+        if (
+            outputModelRef.length != ENCRYPTED_SWARM_REFERENCE_LENGTH || executionProofHash == bytes32(0)
+        ) revert InvalidHash();
         EphemeralJobVault(job.vault).complete(outputModelRef, executionProofHash);
         job.outputModelRef = outputModelRef;
         job.executionProofHash = executionProofHash;
@@ -479,5 +499,9 @@ contract EphemeralCoordinator is Ownable2Step, ReentrancyGuard {
 
     function _vaultState(address vault) private view returns (JobState) {
         return JobState(uint8(EphemeralJobVault(vault).state()));
+    }
+
+    function _validPublicKeyLength(uint256 length) private pure returns (bool) {
+        return length == COMPRESSED_PUBLIC_KEY_LENGTH || length == UNCOMPRESSED_PUBLIC_KEY_LENGTH;
     }
 }

@@ -7,7 +7,7 @@ import {EphemeralCoordinator} from "../src/EphemeralCoordinator.sol";
 /// @notice Registers the already-published three-row Swarm cohort as dataset 1 for the demo deployment.
 contract SeedLiveDataset is Script {
     function run() external returns (uint256 datasetId) {
-        uint256 key = vm.envUint("PRIVATE_KEY");
+        uint256 key = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address hospital = vm.addr(key);
         EphemeralCoordinator coordinator = EphemeralCoordinator(vm.envAddress("COORDINATOR_ADDRESS"));
         uint256 price = vm.envOr("DATASET_PRICE_WEI", uint256(0.01 ether));

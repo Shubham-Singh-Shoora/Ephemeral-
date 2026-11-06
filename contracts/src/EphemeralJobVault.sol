@@ -94,11 +94,6 @@ contract EphemeralJobVault is ReentrancyGuard {
         _refund(reasonHash);
     }
 
-    function claimExpiredRefund() external nonReentrant {
-        if (msg.sender != builder) revert NotBuilder(msg.sender);
-        _claimExpiredRefund();
-    }
-
     function claimExpiredRefundFor(address claimant) external onlyCoordinator nonReentrant {
         if (claimant != builder) revert NotBuilder(claimant);
         _claimExpiredRefund();

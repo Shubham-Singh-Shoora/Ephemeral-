@@ -7,7 +7,7 @@ import {EphemeralCoordinator} from "../src/EphemeralCoordinator.sol";
 /// @notice Deploys the Gnosis-only coordinator. CRE_FORWARDER must be the Chainlink KeystoneForwarder.
 contract DeployGnosisEphemeral is Script {
     function run() external returns (EphemeralCoordinator coordinator) {
-        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
         address creForwarder = vm.envAddress("CRE_FORWARDER");
         address payable protocolTreasury = payable(vm.envAddress("PROTOCOL_TREASURY"));

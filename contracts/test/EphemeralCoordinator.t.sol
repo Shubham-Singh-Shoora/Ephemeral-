@@ -50,7 +50,7 @@ contract EphemeralCoordinatorTest is Test {
         coordinator.finalizeTrainingJob(
             jobId,
             keccak256("cre-tee-attestation"),
-            hex"02112233445566778899aabbccddeeff112233445566778899aabbccddeeff00",
+            abi.encodePacked(bytes1(0x02), keccak256("tee-key")),
             nextList,
             nextHistory,
             abi.encodePacked(keccak256("output-root"), keccak256("output-key")),
@@ -66,7 +66,44 @@ contract EphemeralCoordinatorTest is Test {
         assertEq(vault.balance, 0);
     }
 
-    function testFailedOrExpiredJobRefundsBuilder() public {
+    function testKeystoneReportFinalizesUsingWorkflowEncoding() public {
+        uint256 datasetId = _registerDataset();
+        (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
+        vm.prank(BUILDER);
+        (uint256 jobId,) = coordinator.createTrainingJob{value: total}(_request(datasetId));
+        bytes memory nextList = abi.encodePacked(keccak256("report-list-root"), keccak256("report-list-key"));
+        bytes32 nextHistory = keccak256("report-history");
+        bytes memory outputRef = abi.encodePacked(keccak256("report-output-root"), keccak256("report-output-key"));
+        bytes32 proofHash = keccak256("report-proof");
+        bytes memory payload = abi.encode(
+            jobId,
+            keccak256("report-attestation"),
+            abi.encodePacked(bytes1(0x02), keccak256("report-tee-key")),
+            nextList,
+            nextHistory,
+            outputRef,
+            proofHash
+        );
+
+        vm.prank(CRE);
+        coordinator.onReport(bytes("metadata"), abi.encode(EphemeralCoordinator.CreAction.Finalize, payload));
+
+        EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(jobId);
+        EphemeralCoordinator.Dataset memory dataset = coordinator.getDataset(datasetId);
+        assertEq(uint256(job.state), uint256(EphemeralCoordinator.JobState.Completed));
+        assertEq(dataset.granteeListRef, nextList);
+        assertEq(dataset.actHistoryRef, nextHistory);
+        assertEq(job.outputModelRef, outputRef);
+        assertEq(job.executionProofHash, proofHash);
+    }
+
+    function testRejectsReportOutsideKeystoneForwarder() public {
+        vm.expectRevert(abi.encodeWithSelector(EphemeralCoordinator.NotCreForwarder.selector, BUILDER));
+        vm.prank(BUILDER);
+        coordinator.onReport(bytes(""), bytes(""));
+    }
+
+    function testRefundsBuilderWhenJobFails() public {
         uint256 datasetId = _registerDataset();
         (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
         uint256 before = BUILDER.balance;
@@ -81,12 +118,23 @@ contract EphemeralCoordinatorTest is Test {
         uint256 datasetId = _registerDataset();
         (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
         vm.prank(BUILDER);
-        (uint256 jobId, address vault) = coordinator.createTrainingJob{value: total}(_request(datasetId));
+        (uint256 jobId,) = coordinator.createTrainingJob{value: total}(_request(datasetId));
         EphemeralCoordinator.TrainingJob memory job = coordinator.getTrainingJob(jobId);
         vm.warp(job.deadline + 1);
         vm.prank(BUILDER);
-        EphemeralJobVault(vault).claimExpiredRefund();
+        coordinator.claimExpiredRefund(jobId);
         assertEq(uint256(coordinator.getTrainingJob(jobId).state), uint256(EphemeralCoordinator.JobState.Refunded));
+    }
+
+    function testRejectsInvalidModelReferenceLength() public {
+        uint256 datasetId = _registerDataset();
+        (,, uint256 total) = coordinator.quoteTrainingJob(datasetId);
+        EphemeralCoordinator.TrainingRequest memory request = _request(datasetId);
+        request.encryptedModelRef = hex"1234";
+
+        vm.expectRevert(EphemeralCoordinator.InvalidHash.selector);
+        vm.prank(BUILDER);
+        coordinator.createTrainingJob{value: total}(request);
     }
 
     function _registerDataset() private returns (uint256) {
@@ -97,7 +145,7 @@ contract EphemeralCoordinatorTest is Test {
             encryptedDatasetRef: abi.encodePacked(keccak256("data-root"), keccak256("data-key")),
             granteeListRef: abi.encodePacked(keccak256("list-root"), keccak256("list-key")),
             actHistoryRef: keccak256("history"),
-            publisherPublicKey: hex"02112233445566778899aabbccddeeff112233445566778899aabbccddeeff00",
+            publisherPublicKey: abi.encodePacked(bytes1(0x02), keccak256("publisher-key")),
             syntheticSchemaRef: keccak256("schema"),
             feedManifestRef: keccak256("feed"),
             vaultKeyCommitment: keccak256("vault-key"),
