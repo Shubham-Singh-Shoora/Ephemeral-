@@ -29,11 +29,16 @@ const logoPath = company.branding.logoImage;
       width="512"
       height="512"
       loading="eager"
-      class={density === "compact" ? "h-11 w-auto object-contain lg:h-14" : "h-10 lg:h-12 w-auto object-contain"}
+      class={density === "compact" ? "h-9 w-9 object-contain lg:h-10 lg:w-10" : "h-10 w-10 object-contain lg:h-12 lg:w-12"}
     />
   ) : (
     <span class="font-heading text-base font-bold tracking-[0.18em]" aria-label={company.name}>
       {company.name.toUpperCase()}
+    </span>
+  )}
+  {logoPath && showText && (
+    <span class:list={["hidden font-heading font-bold tracking-[-0.04em] sm:inline", density === "compact" ? "text-lg lg:text-xl" : "text-xl lg:text-2xl", variant === "light" ? "text-white" : variant === "dark" ? "text-brand-dark" : "text-inherit"]}>
+      {company.name}
     </span>
   )}
 </div>

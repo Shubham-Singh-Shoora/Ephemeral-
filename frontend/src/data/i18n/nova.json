@@ -63,8 +63,8 @@
           "PRIVACY",
           "TRUST"
         ],
-        "image": "/assets/images/t001-nova/t001-nova-hero.webp",
-        "imageAlt": "Temporary visual placeholder for the Ephemeral healthcare AI clean room",
+        "image": "/assets/images/ephemeral/hero-clinician.webp",
+        "imageAlt": "Clinician using a confidential healthcare AI workspace",
         "stats": [
           {
             "value": "Local",
@@ -93,14 +93,14 @@
           {
             "category": "Healthcare institutions",
             "title": "Prepare clinical data for trusted research",
-            "image": "/assets/images/t001-nova/t001-nova-project-laptop.webp",
-            "alt": "Temporary placeholder for the healthcare institution workflow"
+            "image": "/assets/images/ephemeral/hospital-data.webp",
+            "alt": "Healthcare data steward preparing an encrypted clinical dataset"
           },
           {
             "category": "AI companies",
             "title": "Build models where the data stays protected",
-            "image": "/assets/images/t001-nova/t001-nova-project-building.webp",
-            "alt": "Temporary placeholder for the AI company workflow"
+            "image": "/assets/images/ephemeral/ai-research.webp",
+            "alt": "AI researchers reviewing a privacy-preserving training workflow"
           }
         ]
       },
@@ -139,8 +139,8 @@
       "nova-team": {
         "title": "Trust is the infrastructure",
         "description": "Ephemeral is designed around a simple boundary: useful clinical intelligence can move forward while identifiable patient records remain under institutional control.",
-        "image": "/assets/images/t001-nova/t001-nova-about-team.webp",
-        "imageAlt": "Temporary placeholder for privacy-preserving healthcare collaboration",
+        "image": "/assets/images/ephemeral/trust-team.webp",
+        "imageAlt": "Healthcare and AI researchers collaborating in a private research workspace",
         "checks": [
           "Source files stay local during preparation",
           "Marketplace previews use synthetic values",
@@ -149,20 +149,7 @@
         "teamCount": "3",
         "teamLabel": "roles connected by one protocol",
         "teamAriaLabel": "Ephemeral participant roles",
-        "teamAvatars": [
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-01@220.webp",
-            "alt": "Healthcare participant placeholder"
-          },
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-02@220.webp",
-            "alt": "Research participant placeholder"
-          },
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-03@220.webp",
-            "alt": "AI company participant placeholder"
-          }
-        ],
+        "teamAvatars": [],
         "buttonLabel": "See the AI company flow",
         "buttonHref": "/ai-company"
       },
@@ -311,8 +298,8 @@
           "PRIVACY",
           "TRUST"
         ],
-        "image": "/assets/images/t001-nova/t001-nova-hero.webp",
-        "imageAlt": "Temporary visual placeholder for the Ephemeral healthcare AI clean room",
+        "image": "/assets/images/ephemeral/hero-clinician.webp",
+        "imageAlt": "Clinician using a confidential healthcare AI workspace",
         "stats": [
           {
             "value": "Local",
@@ -341,14 +328,14 @@
           {
             "category": "Healthcare institutions",
             "title": "Prepare clinical data for trusted research",
-            "image": "/assets/images/t001-nova/t001-nova-project-laptop.webp",
-            "alt": "Temporary placeholder for the healthcare institution workflow"
+            "image": "/assets/images/ephemeral/hospital-data.webp",
+            "alt": "Healthcare data steward preparing an encrypted clinical dataset"
           },
           {
             "category": "AI companies",
             "title": "Build models where the data stays protected",
-            "image": "/assets/images/t001-nova/t001-nova-project-building.webp",
-            "alt": "Temporary placeholder for the AI company workflow"
+            "image": "/assets/images/ephemeral/ai-research.webp",
+            "alt": "AI researchers reviewing a privacy-preserving training workflow"
           }
         ]
       },
@@ -387,8 +374,8 @@
       "nova-team": {
         "title": "Trust is the infrastructure",
         "description": "Ephemeral is designed around a simple boundary: useful clinical intelligence can move forward while identifiable patient records remain under institutional control.",
-        "image": "/assets/images/t001-nova/t001-nova-about-team.webp",
-        "imageAlt": "Temporary placeholder for privacy-preserving healthcare collaboration",
+        "image": "/assets/images/ephemeral/trust-team.webp",
+        "imageAlt": "Healthcare and AI researchers collaborating in a private research workspace",
         "checks": [
           "Source files stay local during preparation",
           "Marketplace previews use synthetic values",
@@ -397,20 +384,7 @@
         "teamCount": "3",
         "teamLabel": "roles connected by one protocol",
         "teamAriaLabel": "Ephemeral participant roles",
-        "teamAvatars": [
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-01@220.webp",
-            "alt": "Healthcare participant placeholder"
-          },
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-02@220.webp",
-            "alt": "Research participant placeholder"
-          },
-          {
-            "src": "/assets/images/t001-nova/t001-nova-avatar-03@220.webp",
-            "alt": "AI company participant placeholder"
-          }
-        ],
+        "teamAvatars": [],
         "buttonLabel": "See the AI company flow",
         "buttonHref": "/ai-company"
       },

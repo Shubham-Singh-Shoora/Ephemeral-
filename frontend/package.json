@@ -11,13 +11,18 @@
     "postinstall": "node src/scripts/sync-phosphor-css.mjs",
     "prebuild": "node src/scripts/sync-phosphor-css.mjs",
     "build": "astro build",
+    "publish:swarm": "node scripts/prepare-swarm-dist.mjs && node scripts/deploy-swarm.mjs",
+    "deploy:swarm": "npm run build && npm run publish:swarm",
+    "publish:arkiv-dataset": "node --import tsx scripts/publish-arkiv-dataset.ts",
     "preview": "astro preview"
   },
   "dependencies": {
+    "@arkiv-network/sdk": "^1.0.1",
     "@astrojs/check": "^0.9.9",
     "@astrojs/react": "6.0.1",
     "@astrojs/sitemap": "3.7.4",
     "@base-ui/react": "^1.6.0",
+    "@ephemeral/eth-swarm": "file:../eth-swarm",
     "@fontsource-variable/geist": "^5.2.9",
     "@phosphor-icons/web": "^2.1.2",
     "@tailwindcss/forms": "^0.5.11",

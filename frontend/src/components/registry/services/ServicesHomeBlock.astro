@@ -196,23 +196,25 @@ const items = props.items ?? jsonData.items;
 
   @media (min-width: 64rem) {
     .nova-services-intro {
-      grid-template-columns: auto minmax(0, 1fr) auto;
-      align-items: end;
-      gap: clamp(1.5rem, 2vw, 2.5rem);
+      grid-template-columns: minmax(0, 1.25fr) minmax(20rem, 0.75fr);
+      grid-template-rows: auto auto;
+      align-items: start;
+      column-gap: clamp(3rem, 7vw, 8rem);
+      row-gap: 1.25rem;
     }
 
     .nova-services-intro > div:nth-child(2) {
-      display: block;
       align-self: end;
-      justify-self: center;
-      max-width: none;
-      text-align: center;
-      white-space: nowrap;
+      justify-self: start;
+      max-width: 36rem;
+      text-align: left;
+      white-space: normal;
     }
 
     .nova-services-link-wrap {
-      align-self: end;
-      justify-self: end;
+      grid-column: 2;
+      align-self: start;
+      justify-self: start;
       padding-top: 0;
     }
 

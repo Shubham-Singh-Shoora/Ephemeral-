@@ -55,3 +55,7 @@ archive/
 dev-server.log
 
 dist-publisher/
+dist-swarm/
+
+# Swarm feed publishing keys are stored outside this package in
+# ../eth-swarm/.local/. The deployment JSON contains only public references.

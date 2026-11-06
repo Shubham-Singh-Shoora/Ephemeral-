@@ -9,7 +9,6 @@ import company from '@data/global/company.json';
 import customCode from '@data/global/custom-code.json';
 import Schema from '@components/ui/atoms/Schema.astro';
 import Toast from '@components/ui/atoms/Toast.astro';
-import FloatingBar from '@components/ui/molecules/FloatingBar.astro';
 import CookieConsent from '@/components/ui/molecules/CookieConsent.astro';
 import ImageLightbox from '@/components/ui/molecules/ImageLightbox.astro';
 import MobileDrawer from '@components/ui/molecules/Navbar/shared/MobileDrawer.astro';
@@ -21,7 +20,6 @@ import FooterColumnsBlock from '@components/registry/shell/FooterColumnsBlock.as
 import FooterMinimalBlock from '@components/registry/shell/FooterMinimalBlock.astro';
 import FooterPromoBlock from '@components/registry/shell/FooterPromoBlock.astro';
 import NovaFooterBlock from '@components/registry/shell/NovaFooterBlock.astro';
-import NovaDemoBanner from '@components/ui/molecules/NovaDemoBanner.astro';
 import type { NovaLocale } from '@utils/nova-i18n';
 
 
@@ -319,7 +317,6 @@ const mainPaddingStyle = fullBleedTop
 		data-review-project={reviewProject || undefined}
 	>
 		{clientRuntime && <MobileDrawer locale={locale} />}
-		{showShell && theme === 'nova' && <NovaDemoBanner locale={locale} />}
 		{showShell && navbarResolved && (
 			<div class:list={theme === 'nova' ? ['relative'] : []}>
 				<navbarResolved.component layout={navbarResolved.layout} theme={navbarTheme} locale={locale} />
@@ -364,7 +361,6 @@ const mainPaddingStyle = fullBleedTop
 		{clientRuntime && <script is:inline data-astro-rerun src="/js/theme-switcher.js" defer></script>}
 		{clientRuntime && hasOptionalTracking && <CookieConsent />}
 	        {clientRuntime && <Toast />}
-	        {clientRuntime && <FloatingBar />}
 	        {clientRuntime && <ImageLightbox />}
 	{
 		// Custom code from client at page end (chat widgets, scripts loaded at end).

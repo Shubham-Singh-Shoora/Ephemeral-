@@ -1,7 +1,6 @@
 ---
 import Logo from "@components/ui/atoms/Logo.astro";
 import MenuToggle from "@components/ui/molecules/Navbar/shared/MenuToggle.astro";
-import LanguageSwitch from "@components/ui/molecules/Navbar/shared/LanguageSwitch.astro";
 import type { NavTheme } from "@components/ui/molecules/Navbar/shared/nav-theme-classes";
 import { getNovaCopy, getNovaNavigationPath, type NovaLocale } from "@utils/nova-i18n";
 
@@ -65,7 +64,10 @@ const fixedShellClass = isDark
 			</nav>
 
 			<div class="relative z-[1010] flex shrink-0 items-center gap-2 sm:gap-3">
-				<LanguageSwitch locale={locale} />
+				<a class="ephemeral-wallet-link" href={getNovaNavigationPath("/healthcare", locale)}>
+					<span>Connect wallet</span>
+					<span aria-hidden="true">↗</span>
+				</a>
 				<MenuToggle locale={locale} />
 			</div>
 		</div>
@@ -97,7 +99,10 @@ const fixedShellClass = isDark
 			</nav>
 
 			<div class="relative z-[1010] flex shrink-0 items-center gap-2 sm:gap-3">
-				<LanguageSwitch locale={locale} />
+				<a class="ephemeral-wallet-link" href={getNovaNavigationPath("/healthcare", locale)}>
+					<span>Connect wallet</span>
+					<span aria-hidden="true">↗</span>
+				</a>
 				<MenuToggle locale={locale} />
 			</div>
 		</div>
@@ -138,7 +143,7 @@ const fixedShellClass = isDark
 	}
 
 	:global(html[data-theme="nova"] header[data-site-header-fixed]) {
-		top: 2.75rem;
+		top: 0;
 	}
 
 	:global(html[data-theme="nova"] header[data-site-header-static] [data-nav-inner]),
@@ -172,6 +177,39 @@ const fixedShellClass = isDark
 		font-weight: 600;
 		letter-spacing: 0.01em;
 		opacity: 0.72;
+	}
+
+	.ephemeral-wallet-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 1.5rem;
+		min-height: 3.125rem;
+		padding: 0.75rem 1.25rem;
+		border: 1px solid var(--color-on-surface);
+		border-radius: 9999px;
+		background: var(--color-on-surface);
+		color: var(--color-surface);
+		font-family: var(--font-sans);
+		font-size: 0.875rem;
+		font-weight: 500;
+		letter-spacing: 0.01em;
+		line-height: 1;
+		white-space: nowrap;
+		transition: background-color 180ms ease, color 180ms ease;
+	}
+
+	.ephemeral-wallet-link:hover {
+		background: color-mix(in srgb, var(--color-on-surface) 86%, var(--color-surface));
+	}
+
+	@media (max-width: 520px) {
+		.ephemeral-wallet-link {
+			gap: 0.6rem;
+			min-height: 2.5rem;
+			padding: 0.65rem 0.8rem;
+			font-size: 0.6875rem;
+		}
 	}
 
 	@media (min-width: 1280px) {
