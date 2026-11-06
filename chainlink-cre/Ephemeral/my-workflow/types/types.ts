@@ -1,71 +1,72 @@
 export type Config = {
-  watchedAddresses: string[];
+  coordinatorAddress: `0x${string}`;
+  beeApiUrl: string;
+  postageBatchId: string;
+  chainSelectorName: string;
+  isTestnet: boolean;
+  environment: 'simulation' | 'staging' | 'production';
 };
 
-export type AlchemyWebhookPayload = {
-  webhookId: string;
-  id: string;
-  createdAt: string;
-  type: string;
-  event: {
-    data: {
-      block: {
-        hash: string;
-        number: number;
-        timestamp: number;
-        logs: Array<{
-          data: string;
-          topics: string[];
-          index: number;
-          account: {
-            address: string;
-          };
-          transaction: {
-            hash: string;
-            nonce: number;
-            index: number;
-            from: {
-              address: string;
-            };
-            to: {
-              address: string;
-            } | null;
-            value: string;
-            gasPrice: string;
-            maxFeePerGas: string | null;
-            maxPriorityFeePerGas: string | null;
-            gas: number;
-            status: number;
-            gasUsed: number;
-            cumulativeGasUsed: number;
-            effectiveGasPrice: string;
-            createdContract?: {
-              address: string;
-            };
-          };
-        }>;
-      };
-    };
+export type TrainingJobRequestEvent = {
+  jobId: number;
+  datasetId: number;
+  builder: string;
+  vaultAddress: string;
+  encryptedModelRef: string;
+  builderPublicKey: string;
+  deadline: number;
+  encryptedDatasetRef: string;
+  granteeListRef: string;
+  actHistoryRef: string;
+  publisherPublicKey: string;
+  syntheticSchemaRef: string;
+  vaultKeyCommitment: string;
+};
+
+export type RemoteAttestationQuote = {
+  teePublicKey: `0x${string}`;
+  attestationReport: `0x${string}`;
+  enclaveMeasurement: `0x${string}`;
+  chipSignature: `0x${string}`;
+};
+
+export type ExecutionProofPayload = {
+  outputModelRef: `0x${string}`;
+  executionProofHash: `0x${string}`;
+  ramWiped: boolean;
+};
+
+export type CleanRoomWorkflowInput = {
+  event: TrainingJobRequestEvent;
+  attestation: RemoteAttestationQuote;
+  completion?: ExecutionProofPayload;
+};
+
+export type SwarmActGrantResult = {
+  success: boolean;
+  granteeListRef: string;
+  previousActHistoryRef: string;
+  newActHistoryRef: string;
+  grantedTeePublicKey: string;
+  beeStatus: number;
+};
+
+export type EvmWriteResult = {
+  txStatus: number;
+  txHash?: string;
+  receiverStatus?: number;
+};
+
+export type CleanRoomWorkflowResult = {
+  status: 'PENDING_COMPLETION' | 'COMPLETED' | 'ACT_GRANT_FAILED';
+  jobId: number;
+  datasetId: number;
+  attestationHash: string;
+  swarmActGrant?: SwarmActGrantResult;
+  onChainActions: {
+    markJobRunning?: EvmWriteResult;
+    completeTrainingJob?: EvmWriteResult;
+    refundFailedJob?: EvmWriteResult;
   };
-};
-
-export type Transaction = {
-  hash: string;
-  nonce: number;
-  index: number;
-  from: string;
-  to: string | null;
-  value: string;
-  gasPrice: string;
-  gas: number;
-  status: number;
-  gasUsed: number;
-  blockNumber: number;
-  blockHash: string;
-  timestamp: number;
-};
-
-export type TransactionStore = {
-  watchedAddresses: Set<string>;
-  transactions: Map<string, Transaction>;
+  summary: string;
 };

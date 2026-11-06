@@ -1,14 +1,18 @@
 {
-  "name": "block-trigger-ts",
+  "name": "ephemeral-cleanroom-cre-workflow",
   "version": "1.0.0",
   "main": "dist/main.js",
   "private": true,
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "build": "tsc --noEmit",
+    "build:wasm": "cre workflow build . --target staging-settings"
   },
   "license": "UNLICENSED",
   "dependencies": {
-    "@chainlink/cre-sdk": "^1.6.0"
+    "@chainlink/cre-sdk": "^1.6.0",
+    "viem": "^2.57.16"
   },
   "devDependencies": {
     "typescript": "5.9.3"

@@ -1,6 +1,8 @@
 {
-  "watchedAddresses": [
-    "0x73b668d8374ddb42c9e2f46fd5b754ac215495bc",
-    "0x6edce65403992e310a62460808c4b910d972f10f"
-  ]
+  "coordinatorAddress": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "beeApiUrl": "http://localhost:1633",
+  "postageBatchId": "5a63c224ed75f8fac7fec10e3efa39e646744b41f263e222c104a8cf5dfd34e6",
+  "chainSelectorName": "gnosis_chain-mainnet",
+  "isTestnet": false,
+  "environment": "production"
 }

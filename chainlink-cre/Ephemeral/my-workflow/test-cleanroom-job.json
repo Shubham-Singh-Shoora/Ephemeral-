@@ -1,0 +1,28 @@
+{
+  "event": {
+    "jobId": 1,
+    "datasetId": 1,
+    "builder": "0xCC33000000000000000000000000000000000000",
+    "vaultAddress": "0x1111222233334444555566667777888899990000",
+    "encryptedModelRef": "0x6f3e098a5840d21a50b86a0b949987f2e1a3994348270146e29788647acae911",
+    "builderPublicKey": "0x04112233445566778899aabbccddeeff112233445566778899aabbccddeeff00112233445566778899aabbccddeeff112233445566778899aabbccddeeff00",
+    "deadline": 1800000000,
+    "encryptedDatasetRef": "0x246c39bca3da29b90fdf4b5be53a4678006e64dac608e9dacf97bdf82c25668a3d5dd553435e68233d25ee34c56bcf73226595eedb801500a1b7d037c7e8f8a0",
+    "granteeListRef": "0xee5ba4186feb769b819cc382777966a0696997a9500a8479285bfdeff8af1a1e5b8e82eb083043559f7c3446599550b2ccae7e34c02d5c4011eeceba4948e5c6",
+    "actHistoryRef": "0x2d458dc2c5ce11559e7c28f649484bd2fa9a38fa23c1564c1e460155d0332a4f",
+    "publisherPublicKey": "0x0248b88b3d1d2021cecc6f206b185f0030330b374b03ed99e7cb9a725a248b9bf2",
+    "syntheticSchemaRef": "0xb37e79618958ddef0b73f42a897e3158d7d286bec7873231653e8f3c0d198e6c",
+    "vaultKeyCommitment": "0xc6bded237078dbb3c0160af0f146228a2f4e1c1117f5d4d4a755d185600ffa09"
+  },
+  "attestation": {
+    "teePublicKey": "0x04a8b7c6d5e4f3a2b10987654321fedcba0987654321fedcba0987654321fedc0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "attestationReport": "0x01020304",
+    "enclaveMeasurement": "0x11112222",
+    "chipSignature": "0x9876543210abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "completion": {
+    "outputModelRef": "0xbbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899aa",
+    "executionProofHash": "0xaabbccddeeff00112233445566778899aabbccddeeff00112233445566778899",
+    "ramWiped": true
+  }
+}

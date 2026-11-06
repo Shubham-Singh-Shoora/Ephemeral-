@@ -1,103 +1,116 @@
-import { cre, Runner, type Runtime, type HTTPPayload, decodeJson } from "@chainlink/cre-sdk";
-import type { Config, AlchemyWebhookPayload, Transaction, TransactionStore } from "./types/types";
+import {
+  bytesToHex,
+  cre,
+  decodeJson,
+  getNetwork,
+  prepareReportRequest,
+  Runner,
+  type HTTPPayload,
+  type TeeRuntime,
+} from '@chainlink/cre-sdk';
+import { concatHex, keccak256, type Hex } from 'viem';
+import type { CleanRoomWorkflowInput, CleanRoomWorkflowResult, Config, EvmWriteResult } from './types/types.js';
+import { grantTeeAccessOnSwarmAct } from './actions/swarmActGrant.js';
+import { encodeCompleteTrainingJob, encodeMarkJobRunning, encodeRefundFailedJob } from './actions/coordinatorClient.js';
 
-function createTransactionStore(addresses: string[]): TransactionStore {
+function requireHex(value: string, name: string): Hex {
+  if (!/^0x[0-9a-fA-F]+$/.test(value) || value.length % 2 !== 0) throw new Error(`${name} must be 0x-prefixed hex`);
+  return value as Hex;
+}
+
+function writeReport(runtime: TeeRuntime<Config>, payload: Hex): EvmWriteResult {
+  const network = getNetwork({
+    chainFamily: 'evm',
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: runtime.config.isTestnet,
+  });
+  if (!network) throw new Error(`Unsupported CRE EVM network: ${runtime.config.chainSelectorName}`);
+  const report = runtime.reportFromDon(prepareReportRequest(payload)).result();
+  const response = new cre.capabilities.EVMClient(network.chainSelector.selector)
+    .writeReport(runtime.usingTheDons(), { receiver: runtime.config.coordinatorAddress, report })
+    .result();
+  if (response.errorMessage) throw new Error(`CRE EVM write failed: ${response.errorMessage}`);
   return {
-    watchedAddresses: new Set(addresses.map(addr => addr.toLowerCase())),
-    transactions: new Map()
+    txStatus: response.txStatus,
+    txHash: response.txHash ? bytesToHex(response.txHash) : undefined,
+    receiverStatus: response.receiverContractExecutionStatus,
   };
 }
 
-function isWatchedAddress(store: TransactionStore, address: string | null): boolean {
-  if (!address) return false;
-  return store.watchedAddresses.has(address.toLowerCase());
-}
+const onCleanRoomTrigger = async (
+  runtime: TeeRuntime<Config>,
+  payload: HTTPPayload
+): Promise<string> => {
+  const input = decodeJson(payload.input) as CleanRoomWorkflowInput;
+  if (!input.event || !input.attestation) throw new Error('Missing training event or TEE attestation evidence');
+  const job = input.event;
+  const quote = input.attestation;
+  const teePublicKey = requireHex(quote.teePublicKey, 'TEE public key');
+  const attestationHash = keccak256(concatHex([
+    requireHex(quote.attestationReport, 'attestation report'),
+    requireHex(quote.enclaveMeasurement, 'enclave measurement'),
+    requireHex(quote.chipSignature, 'chip signature'),
+  ]));
 
-function saveTransaction(store: TransactionStore, tx: Transaction): void {
-  store.transactions.set(tx.hash, tx);
-}
-
-const onHttpTrigger = (runtime: Runtime<Config>, payload: HTTPPayload): string => {
-  const blockData = decodeJson(payload.input) as AlchemyWebhookPayload;
-
-  if (!blockData.event?.data?.block) {
-    runtime.log("Invalid webhook payload: missing block data");
-    throw new Error("Error: Invalid webhook payload structure");
+  runtime.log(`Running job ${job.jobId} inside an attested CRE Nitro TEE`);
+  let actGrant;
+  try {
+    actGrant = await grantTeeAccessOnSwarmAct(
+      runtime.config.beeApiUrl,
+      runtime.config.postageBatchId,
+      job.granteeListRef,
+      job.actHistoryRef,
+      teePublicKey
+    );
+  } catch (error) {
+    const refund = writeReport(runtime, encodeRefundFailedJob(job.jobId, `SWARM_ACT_FAILED:${String(error)}`));
+    const failed: CleanRoomWorkflowResult = {
+      status: 'ACT_GRANT_FAILED', jobId: job.jobId, datasetId: job.datasetId, attestationHash,
+      onChainActions: { refundFailedJob: refund },
+      summary: `ACT grant failed and escrow refund was submitted: ${String(error)}`,
+    };
+    return JSON.stringify(failed);
   }
 
-  const block = blockData.event.data.block;
-  runtime.log(`Processing block ${block.number} | hash=${block.hash}`);
-
-  const store = createTransactionStore(runtime.config.watchedAddresses);
-
-  const processedHashes = new Set<string>();
-  const matchedTransactions: Transaction[] = [];
-
-  for (const log of block.logs) {
-    const tx = log.transaction;
-
-    if (processedHashes.has(tx.hash)) {
-      continue;
-    }
-    processedHashes.add(tx.hash);
-
-    const toAddress = tx.to?.address || null;
-    if (isWatchedAddress(store, toAddress)) {
-      runtime.log(`Match found! Transaction ${tx.hash} to watched address ${toAddress}`);
-
-      const transaction: Transaction = {
-        hash: tx.hash,
-        nonce: tx.nonce,
-        index: tx.index,
-        from: tx.from.address,
-        to: toAddress,
-        value: tx.value,
-        gasPrice: tx.gasPrice,
-        gas: tx.gas,
-        status: tx.status,
-        gasUsed: tx.gasUsed,
-        blockNumber: block.number,
-        blockHash: block.hash,
-        timestamp: block.timestamp,
-      };
-
-      saveTransaction(store, transaction);
-      matchedTransactions.push(transaction);
-    }
-  }
-
-  runtime.log(
-    `Block processing complete | ` +
-    `block=${block.number} | ` +
-    `totalLogs=${block.logs.length} | ` +
-    `uniqueTransactions=${processedHashes.size} | ` +
-    `matchedTransactions=${matchedTransactions.length}`
+  const markJobRunning = writeReport(
+    runtime,
+    encodeMarkJobRunning(job.jobId, attestationHash, teePublicKey)
   );
-
-  const result = {
-    blockNumber: block.number,
-    blockHash: block.hash,
-    timestamp: block.timestamp,
-    totalLogs: block.logs.length,
-    uniqueTransactions: processedHashes.size,
-    matchedTransactions: matchedTransactions.length,
-    transactions: matchedTransactions,
+  const result: CleanRoomWorkflowResult = {
+    status: 'PENDING_COMPLETION', jobId: job.jobId, datasetId: job.datasetId, attestationHash,
+    swarmActGrant: actGrant,
+    onChainActions: { markJobRunning },
+    summary: `Job ${job.jobId} is running with TEE access recorded in Swarm ACT.`,
   };
 
-  return JSON.stringify(result, null, 2);
+  if (input.completion) {
+    if (!input.completion.ramWiped) {
+      result.onChainActions.refundFailedJob = writeReport(runtime, encodeRefundFailedJob(job.jobId, 'TEE_RAM_NOT_WIPED'));
+      result.status = 'ACT_GRANT_FAILED';
+      result.summary = 'TEE did not attest RAM wipe; escrow refund was submitted.';
+      return JSON.stringify(result);
+    }
+    result.onChainActions.completeTrainingJob = writeReport(runtime, encodeCompleteTrainingJob(
+      job.jobId,
+      requireHex(input.completion.outputModelRef, 'output model reference'),
+      requireHex(input.completion.executionProofHash, 'execution proof hash')
+    ));
+    result.status = 'COMPLETED';
+    result.summary = `Job ${job.jobId} completed and the DON-signed payout report was written on-chain.`;
+  }
+  return JSON.stringify(result);
 };
 
-const initWorkflow = (config: Config) => {
+const initWorkflow = (_config: Config) => {
   const http = new cre.capabilities.HTTPCapability();
-
-  return [
-    cre.handler(http.trigger({}), onHttpTrigger),
-  ];
+  return [cre.handlerInTee(
+    http.trigger({}),
+    onCleanRoomTrigger,
+    [{ tee: 'nitro', regions: ['us-west-2'] }]
+  )];
 };
 
 export async function main() {
   const runner = await Runner.newRunner<Config>();
   await runner.run(initWorkflow);
 }
-
-main();
