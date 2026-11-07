@@ -1,0 +1,21 @@
+Sl No,Age,Gender,Religion,Present District,HbA0,HbA2,HbF,S-Window,Unknown,RBC,HB,MCV,MCH,MCHC,RDWcv,Weekness,Jaundice,Diagnosis
+1,24,Female,Hindu,Kolkata,85.2,5.8,1.2,0.0,0.4,5.4,10.2,64.5,20.1,31.2,16.8,Yes,No,Beta Thalassemia Trait
+2,31,Male,Muslim,Howrah,83.4,2.6,0.8,11.2,0.3,4.9,12.5,78.2,25.4,32.5,14.2,No,No,HbE Trait
+3,19,Female,Christian,North 24 Parganas,88.5,2.4,0.5,0.0,0.2,4.8,13.1,86.4,29.1,33.7,12.9,No,No,Normal
+4,28,Male,Hindu,Hooghly,84.1,5.6,1.9,0.0,0.5,5.6,10.8,63.1,19.8,31.4,17.1,Yes,No,Beta Thalassemia Trait
+5,45,Female,Muslim,Burdwan,82.9,2.8,0.7,12.4,0.4,4.7,11.9,76.5,24.8,32.4,14.5,No,No,HbE Trait
+6,22,Male,Hindu,South 24 Parganas,87.9,2.5,0.6,0.0,0.3,5.1,14.0,88.2,29.8,33.8,13.1,No,No,Normal
+7,35,Female,Hindu,Nadia,83.7,6.1,2.1,0.0,0.6,5.8,10.5,62.4,19.5,31.2,17.5,Yes,Yes,Beta Thalassemia Trait
+8,29,Male,Muslim,Murshidabad,84.5,2.7,0.9,10.8,0.3,4.8,12.2,77.1,25.1,32.6,14.1,No,No,HbE Trait
+9,52,Male,Hindu,Midnapore,88.1,2.3,0.4,0.0,0.2,5.0,13.8,87.0,29.4,33.8,12.8,No,No,Normal
+10,18,Female,Christian,Kolkata,85.0,5.9,1.4,0.0,0.5,5.5,10.1,63.8,19.9,31.2,16.9,Yes,No,Beta Thalassemia Trait
+11,26,Male,Hindu,Howrah,83.2,2.5,0.8,11.5,0.4,4.9,12.4,77.8,25.3,32.5,14.3,No,No,HbE Trait
+12,40,Female,Muslim,Hooghly,87.6,2.4,0.5,0.0,0.3,4.9,13.5,86.8,29.2,33.6,13.0,No,No,Normal
+13,33,Male,Hindu,Burdwan,84.3,6.2,1.8,0.0,0.5,5.7,10.4,62.8,19.6,31.2,17.4,Yes,Yes,Beta Thalassemia Trait
+14,27,Female,Hindu,North 24 Parganas,83.8,2.9,0.7,11.1,0.3,4.7,12.0,76.9,24.9,32.4,14.4,No,No,HbE Trait
+15,61,Male,Christian,Kolkata,88.3,2.5,0.6,0.0,0.2,5.1,14.2,87.9,29.7,33.8,12.7,No,No,Normal
+16,21,Female,Muslim,South 24 Parganas,84.8,5.7,1.5,0.0,0.4,5.4,10.3,64.1,20.0,31.2,17.0,Yes,No,Beta Thalassemia Trait
+17,38,Male,Hindu,Nadia,83.5,2.6,0.8,11.8,0.4,4.8,12.3,77.5,25.2,32.5,14.2,No,No,HbE Trait
+18,49,Female,Hindu,Midnapore,87.8,2.3,0.5,0.0,0.2,4.8,13.4,86.5,29.3,33.9,13.2,No,No,Normal
+19,25,Male,Muslim,Murshidabad,84.0,6.0,2.0,0.0,0.5,5.6,10.6,63.0,19.7,31.3,17.2,Yes,Yes,Beta Thalassemia Trait
+20,30,Female,Christian,Howrah,88.4,2.4,0.4,0.0,0.3,5.0,13.9,87.4,29.5,33.7,12.9,No,No,Normal
