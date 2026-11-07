@@ -1,12 +1,12 @@
 {
-  "deployedAt": "2026-11-06T10:02:55.343Z",
+  "deployedAt": "2026-11-07T01:23:06.326Z",
   "beeVersion": "2.8.3-8e9bb914",
-  "contentReference": "603da934298175e7d32cf5712cc694a39168c9349b849d8960345201976a95c9",
+  "contentReference": "68dbb9f72f4ed3a7105c8c8ffbf45fddae13f215f1ecb83bb3f7c09c4a258873",
   "feedManifestReference": "98ef26ded1419c0659b8a67e9da5f9033157000f5662204e7c99759046365e01",
   "feedTopic": "d1321aaa9cbe58f1dc694940ab9249f907312d70ddd9aeac9d7e1b29dee6c803",
   "feedOwner": "0x56Ae72f5022efB9c9e4132bAC37923b390c67959",
   "contentBatchId": "5a63c224ed75f8fac7fec10e3efa39e646744b41f263e222c104a8cf5dfd34e6",
-  "feedBatchId": "6c8c6e1b9f76cca44a22b2683c023f63799c21dfe33fc3b7b1e73f9d7d5be40c",
+  "feedBatchId": "5a63c224ed75f8fac7fec10e3efa39e646744b41f263e222c104a8cf5dfd34e6",
   "urls": {
     "local": "http://localhost:1633/bzz/98ef26ded1419c0659b8a67e9da5f9033157000f5662204e7c99759046365e01/",
     "publicGateway": "https://bzz.limo/bzz/98ef26ded1419c0659b8a67e9da5f9033157000f5662204e7c99759046365e01/",

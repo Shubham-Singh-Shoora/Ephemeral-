@@ -11,6 +11,7 @@ import { PublicDatasetCatalog, PublicDatasetChunks } from '../src/arkiv/schema';
 
 const CHUNK_BYTES = 60 * 1024;
 const CREATES_PER_TRANSACTION = 4;
+const DEFAULT_MEDIATOR = '0x30411b981578Fad62D4D20316Da8936cE61F8509';
 
 const { values } = parseArgs({
   options: {
@@ -89,6 +90,10 @@ async function main() {
   );
   const chunks = splitBytes(fileBytes);
   const account = privateKeyToAccount(privateKey);
+  const allowedMediator = String(process.env.ARKIV_MEDIATOR_ADDRESS || DEFAULT_MEDIATOR).toLowerCase();
+  if (account.address.toLowerCase() !== allowedMediator) {
+    throw new Error(`ARKIV_MEDIATOR_PRIVATE_KEY must resolve to the allowlisted mediator ${allowedMediator}`);
+  }
   const chain = rabdi({ accessKey });
   const publicClient = createPublicClient({ chain, transport: http() });
   const walletClient = createWalletClient({ chain, transport: http(), account });

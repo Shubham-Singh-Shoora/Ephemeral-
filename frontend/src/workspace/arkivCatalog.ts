@@ -8,7 +8,10 @@ import type { Dataset } from './data';
 export type ArkivCatalogStatus = 'ready' | 'not-configured' | 'unavailable';
 
 const accessKey = String(import.meta.env.PUBLIC_ARKIV_ACCESS_KEY || '');
-const mediator = String(import.meta.env.PUBLIC_ARKIV_MEDIATOR_ADDRESS || '').trim();
+export const ARKIV_MEDIATOR_ADDRESS = String(
+  import.meta.env.PUBLIC_ARKIV_MEDIATOR_ADDRESS || '0x30411b981578Fad62D4D20316Da8936cE61F8509'
+).trim() as Address;
+const mediator = ARKIV_MEDIATOR_ADDRESS;
 
 function client() {
   return createPublicClient({ chain: rabdi({ accessKey }), transport: http() });
@@ -23,7 +26,7 @@ function parseJson<T>(value: Hex, fallback: T): T {
 }
 
 export async function loadArkivPublicDatasets(): Promise<Dataset[]> {
-  if (!isAddress(mediator)) return [];
+  if (!isArkivConfigured()) return [];
   const page = await client()
     .select({
       $key: true,
@@ -73,6 +76,7 @@ export async function loadArkivPublicDatasets(): Promise<Dataset[]> {
 }
 
 export function isArkivConfigured(): boolean {
+  // Rabdi exposes a rate-limited public read endpoint when the browser build has no access key.
   return isAddress(mediator);
 }
 

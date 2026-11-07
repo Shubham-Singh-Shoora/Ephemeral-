@@ -1,1 +1,4 @@
 .agents/
+
+contracts/out/
+contracts/cache/

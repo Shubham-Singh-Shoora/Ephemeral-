@@ -4,19 +4,41 @@ import { generatePreview, MAX_FILE_BYTES, type Preview } from '../publisher/synt
 import { categories, type Dataset } from './data';
 import { publishDatasetToSwarm, checkSwarmNodeHealth } from '../publisher/swarmClient';
 import type { HospitalPublishResult } from '@ephemeral/eth-swarm';
+import { decodeEventLog, isAddress, parseAbi, parseUnits, zeroAddress, type Address, type Hex } from 'viem';
+import { useChainId, useConnection, useSwitchChain, useWriteContract } from 'wagmi';
+import { getWorkspacePublicClient } from './web3Config';
+
+const baseCoordinatorAbi = parseAbi([
+  'function registerDataset((address hospital,address payoutAddress,string title,string clinicalCategory,bytes encryptedDatasetRef,bytes granteeListRef,bytes32 actHistoryRef,bytes publisherPublicKey,bytes32 syntheticSchemaRef,bytes32 feedManifestRef,bytes32 vaultKeyCommitment,bytes32 postageBatchId,uint256 priceUsdc) registration) returns (uint256 datasetId)',
+  'function minimumStorageReserve() view returns (uint256)',
+  'event DatasetRegistered(uint256 indexed datasetId,address indexed hospital,bytes32 indexed postageBatchId,uint256 priceUsdc,string title)',
+]);
+const baseCoordinatorAddress = String(import.meta.env.PUBLIC_BASE_COORDINATOR_ADDRESS || zeroAddress) as Address;
+const BASE_CHAIN_ID = 8453 as const;
+const defaultBeeUrl = (typeof window !== 'undefined' && window.location.protocol === 'https:' && (!import.meta.env.PUBLIC_BEE_API_URL || import.meta.env.PUBLIC_BEE_API_URL.startsWith('http://localhost')))
+  ? 'https://thicket-defuse-recount.ngrok-free.dev'
+  : String(import.meta.env.PUBLIC_BEE_API_URL || 'http://localhost:1633').trim();
+
+function asHex(value: string): Hex {
+  return (value.startsWith('0x') ? value : `0x${value}`) as Hex;
+}
 
 export default function Healthcare({
   datasets,
   onAdd,
+  onUpdate,
 }: {
   datasets: Dataset[];
   onAdd: (dataset: Dataset) => void;
+  onUpdate: (id: string, changes: Partial<Dataset>) => void;
 }) {
   const [profile, setProfile] = useState<{ name: string; license: string } | null>(null);
   const [name, setName] = useState('');
   const [license, setLicense] = useState('');
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('Critical Care');
+  const [priceUsdc, setPriceUsdc] = useState('');
+  const [minimumPriceUsdc, setMinimumPriceUsdc] = useState(0.01);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [rawText, setRawText] = useState('');
   const [filename, setFilename] = useState('');
@@ -26,16 +48,48 @@ export default function Healthcare({
   const [notice, setNotice] = useState('');
   const [swarmResult, setSwarmResult] = useState<HospitalPublishResult | null>(null);
   const [beeOnline, setBeeOnline] = useState<boolean | null>(null);
-  const [beeUrl, setBeeUrl] = useState('http://localhost:1633');
+  const [beeUrl, setBeeUrl] = useState(defaultBeeUrl);
   const [batchId, setBatchId] = useState('');
   const [feedBatchId, setFeedBatchId] = useState('');
+  const [publishedDatasetId, setPublishedDatasetId] = useState('');
+  const [baseDatasetId, setBaseDatasetId] = useState<number | null>(null);
+  const [registeringBase, setRegisteringBase] = useState(false);
+  const { address } = useConnection();
+  const chainId = useChainId();
+  const { switchChainAsync } = useSwitchChain();
+  const { writeContractAsync } = useWriteContract();
 
   const fileRequest = useRef(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    checkSwarmNodeHealth(beeUrl).then(h => setBeeOnline(h.online));
+    const endpoint = beeUrl.trim();
+    let cancelled = false;
+    if (!endpoint) {
+      setBeeOnline(null);
+      return () => { cancelled = true; };
+    }
+    setBeeOnline(null);
+    checkSwarmNodeHealth(endpoint)
+      .then(health => { if (!cancelled) setBeeOnline(health.online); })
+      .catch(() => { if (!cancelled) setBeeOnline(false); });
+    return () => { cancelled = true; };
   }, [beeUrl]);
+
+  useEffect(() => {
+    if (!isAddress(baseCoordinatorAddress) || baseCoordinatorAddress === zeroAddress) return;
+    getWorkspacePublicClient(BASE_CHAIN_ID).readContract({
+      address: baseCoordinatorAddress,
+      abi: baseCoordinatorAbi,
+      functionName: 'minimumStorageReserve',
+    }).then(reserve => {
+      const minimumTotalUnits = (reserve * 10_000n + 249n) / 250n;
+      setMinimumPriceUsdc(Number(minimumTotalUnits) / 1_000_000);
+    }).catch(() => undefined);
+  }, []);
+
+  const parsedPrice = Number(priceUsdc);
+  const priceIsValid = Number.isFinite(parsedPrice) && parsedPrice >= minimumPriceUsdc;
 
   function register(event: FormEvent) {
     event.preventDefault();
@@ -51,6 +105,8 @@ export default function Healthcare({
     setError('');
     setNotice('');
     setSwarmResult(null);
+    setPublishedDatasetId('');
+    setBaseDatasetId(null);
     setBusy(false);
     if (!file) return;
     if (!/\.(csv|tsv)$/i.test(file.name)) {
@@ -90,6 +146,12 @@ export default function Healthcare({
 
   async function handlePublishToSwarm() {
     if (!preview || !profile || !title.trim() || !rawText) return;
+    if (!beeUrl.trim()) {
+      return setError('Add this hospital\'s Bee API endpoint before publishing.');
+    }
+    if (!priceIsValid) {
+      return setError(`Set a dataset price of at least ${minimumPriceUsdc.toFixed(2)} USDC.`);
+    }
     setUploadingSwarm(true);
     setError('');
     setNotice('');
@@ -106,21 +168,30 @@ export default function Healthcare({
           columns: preview.columns,
           rows: preview.rows,
           sourceRows: preview.sourceRows,
+          columnProfiles: preview.columnProfiles,
+          privacyModel: preview.privacyModel,
+          schemaVersion: preview.schemaVersion,
         },
       });
 
       setSwarmResult(result);
+      const localDatasetId = crypto.randomUUID();
+      setPublishedDatasetId(localDatasetId);
       onAdd({
-        id: crypto.randomUUID(),
+        id: localDatasetId,
         title: title.trim(),
         category,
         institution: profile.name,
         records: preview.sourceRows,
         columns: preview.columns,
         rows: preview.rows,
+        columnProfiles: preview.columnProfiles,
+        privacyModel: preview.privacyModel,
         description: `Encrypted clinical dataset published to Ethereum Swarm with Access Control Trie (ACT). Hash: ${result.encryptedDatasetRef.slice(0, 10)}…`,
         color: 'sage',
-        price: 0.05,
+        price: Number(priceUsdc),
+        paymentToken: 'USDC',
+        paymentChainId: BASE_CHAIN_ID,
         local: true,
         encryptedDatasetRef: result.encryptedDatasetRef,
         granteeListRef: result.granteeListRef,
@@ -130,14 +201,79 @@ export default function Healthcare({
         feedManifestRef: result.feedManifestRef,
         feedTopic: result.feedTopic,
         feedOwner: result.feedOwner,
+        postageBatchId: result.postageBatchId,
         vaultKeyCommitment: result.vaultKeyCommitment,
         isSwarmLive: true,
       });
       setNotice('Encrypted dataset, ACT access list, synthetic schema and mutable feed are live on Swarm.');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to publish to Ethereum Swarm.');
+      console.error('Swarm publish failed:', err);
+      const rawMsg = err instanceof Error ? err.message : 'Failed to publish to Ethereum Swarm.';
+      if (rawMsg.includes('Failed to fetch') && typeof window !== 'undefined' && window.location.protocol === 'https:' && beeUrl.startsWith('http:')) {
+        setError('Browser Mixed-Content Block: This site is loaded over HTTPS (ephemeralglobal.eth.limo), so the browser blocks unencrypted HTTP requests to http://localhost:1633. To upload with your local Nook node, either: 1) Open the app locally at http://localhost:4321/app/#/healthcare, or 2) Enter an HTTPS tunnel endpoint (e.g. ngrok) under Swarm Settings below.');
+      } else {
+        setError(rawMsg);
+      }
     } finally {
       setUploadingSwarm(false);
+    }
+  }
+
+  async function registerPriceOnBase() {
+    if (!swarmResult || !publishedDatasetId || !profile || !preview) return;
+    if (!address) return setError('Connect the accredited healthcare wallet before registering this dataset on Base.');
+    if (!isAddress(baseCoordinatorAddress) || baseCoordinatorAddress === zeroAddress) {
+      return setError('PUBLIC_BASE_COORDINATOR_ADDRESS is not configured. Deploy the Base coordinator first.');
+    }
+    if (!priceIsValid) {
+      return setError(`Set a dataset price of at least ${minimumPriceUsdc.toFixed(2)} USDC.`);
+    }
+    setRegisteringBase(true);
+    setError('');
+    try {
+      if (chainId !== BASE_CHAIN_ID) await switchChainAsync({ chainId: BASE_CHAIN_ID });
+      const hash = await writeContractAsync({
+        address: baseCoordinatorAddress,
+        abi: baseCoordinatorAbi,
+        functionName: 'registerDataset',
+        chainId: BASE_CHAIN_ID,
+        args: [{
+          hospital: address,
+          payoutAddress: address,
+          title: title.trim(),
+          clinicalCategory: category,
+          encryptedDatasetRef: asHex(swarmResult.encryptedDatasetRef),
+          granteeListRef: asHex(swarmResult.granteeListRef),
+          actHistoryRef: asHex(swarmResult.actHistoryRef),
+          publisherPublicKey: asHex(swarmResult.publisherPublicKey),
+          syntheticSchemaRef: asHex(swarmResult.syntheticSchemaRef),
+          feedManifestRef: asHex(swarmResult.feedManifestRef),
+          vaultKeyCommitment: asHex(swarmResult.vaultKeyCommitment),
+          postageBatchId: asHex(swarmResult.postageBatchId),
+          priceUsdc: parseUnits(priceUsdc, 6),
+        }],
+      });
+      const client = getWorkspacePublicClient(BASE_CHAIN_ID);
+      const receipt = await client.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') throw new Error('Base dataset registration reverted.');
+      let registeredId: number | null = null;
+      for (const log of receipt.logs) {
+        try {
+          const decoded = decodeEventLog({ abi: baseCoordinatorAbi, data: log.data, topics: log.topics });
+          if (decoded.eventName === 'DatasetRegistered') {
+            registeredId = Number(decoded.args.datasetId);
+            break;
+          }
+        } catch { /* another event in the same receipt */ }
+      }
+      if (!registeredId || !Number.isSafeInteger(registeredId)) throw new Error('DatasetRegistered event was not found.');
+      setBaseDatasetId(registeredId);
+      onUpdate(publishedDatasetId, { baseDatasetId: registeredId, price: parsedPrice, paymentToken: 'USDC', paymentChainId: BASE_CHAIN_ID });
+      setNotice(`Dataset ${registeredId} is registered on Base at ${parsedPrice.toFixed(2)} USDC per job.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Base dataset registration failed.');
+    } finally {
+      setRegisteringBase(false);
     }
   }
 
@@ -181,8 +317,8 @@ export default function Healthcare({
         </div>
         <div>
           <span>ETHEREUM SWARM NODE</span>
-          <strong>{beeOnline ? 'Online (Bee)' : 'Offline / Standby'}</strong>
-          <small>{beeUrl}</small>
+          <strong>{beeOnline === true ? 'Online / Ready' : beeOnline === null ? 'Checking Bee node…' : 'Local Bee configured'}</strong>
+          <small>{beeOnline === true ? 'Hospital publisher verified' : 'Hospital-managed publisher'}</small>
         </div>
         <div className="summary-accent">
           <span>YOUR DATA. YOUR CONTROL.</span>
@@ -199,9 +335,6 @@ export default function Healthcare({
             </span>
             <span className={profile ? 'active' : ''}>
               <b>02</b>Dataset & Swarm
-            </span>
-            <span>
-              <b>03</b>Review
             </span>
           </div>
 
@@ -300,6 +433,24 @@ export default function Healthcare({
                     </select>
                   </label>
                 </div>
+                <label>
+                  Training job price · Base USDC
+                  <input
+                    required
+                    type="number"
+                    min={minimumPriceUsdc}
+                    max="1000000"
+                    step="0.01"
+                    value={priceUsdc}
+                    onChange={event => setPriceUsdc(event.target.value)}
+                    placeholder="Set your price"
+                  />
+                </label>
+                <p className="note">
+                  You choose the full price{minimumPriceUsdc > 0.01 ? ` (current protocol minimum ${minimumPriceUsdc.toFixed(2)} USDC)` : ''}. On success: 95% is paid to your payout wallet, 2.5% to the mediator,
+                  and 2.5% funds this dataset’s Swarm postage top-up. On failure, the Builder receives the 97.5%
+                  escrow back; the storage top-up remains spent.
+                </p>
 
                 <div className="section-title small-title">
                   <h3>Synthetic schema preview</h3>
@@ -349,9 +500,27 @@ export default function Healthcare({
                       <input
                         value={beeUrl}
                         onChange={e => setBeeUrl(e.target.value)}
-                        placeholder="http://localhost:1633"
+                        placeholder="Hospital Bee API endpoint"
                       />
                     </label>
+                    <div className="flex gap-2 text-xs" style={{ display: 'flex', gap: '8px', margin: '4px 0 8px' }}>
+                      <button
+                        type="button"
+                        className="button outline small"
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                        onClick={() => setBeeUrl('https://thicket-defuse-recount.ngrok-free.dev')}
+                      >
+                        ⚡ Live HTTPS Tunnel
+                      </button>
+                      <button
+                        type="button"
+                        className="button outline small"
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                        onClick={() => setBeeUrl('http://localhost:1633')}
+                      >
+                        💻 Localhost 1633
+                      </button>
+                    </div>
                     <label>
                       Immutable dataset postage batch (auto-detected)
                       <input
@@ -370,7 +539,17 @@ export default function Healthcare({
                     </label>
                     <p className="note">
                       Swarm Node status:{' '}
-                      <strong>{beeOnline === null ? 'Checking…' : beeOnline ? 'Online (Bee API ok)' : 'Offline — publishing is disabled'}</strong>
+                      <strong>
+                        {!beeUrl.trim()
+                          ? 'Endpoint required'
+                          : beeOnline === null
+                          ? 'Checking…'
+                          : beeOnline
+                          ? 'Online (Bee API ok)'
+                          : typeof window !== 'undefined' && window.location.protocol === 'https:' && beeUrl.startsWith('http:')
+                          ? 'Blocked by browser (HTTPS cannot call HTTP localhost). Open via http://localhost:4321 or use an HTTPS tunnel'
+                          : 'Not reachable from this browser — verify Bee is running and CORS is enabled'}
+                      </strong>
                     </p>
                   </div>
                 </details>
@@ -386,14 +565,22 @@ export default function Healthcare({
                     type="button"
                     className="button full"
                     style={{ background: 'var(--color-primary, #0f766e)' }}
-                    disabled={!preview || !title.trim() || busy || uploadingSwarm}
+                    disabled={!preview || !title.trim() || !priceIsValid || busy || uploadingSwarm}
                     onClick={handlePublishToSwarm}
                   >
                     {uploadingSwarm
                       ? 'Encrypting & Uploading to Swarm (ACT)…'
                       : 'Upload to Ethereum Swarm (ACT Lock) ↗'}
                   </button>
-
+                  {swarmResult && !baseDatasetId && <button
+                    type="button"
+                    className="button outline full"
+                    disabled={registeringBase}
+                    onClick={registerPriceOnBase}
+                  >
+                    {registeringBase ? 'Registering on Base…' : `Register ${parsedPrice.toFixed(2)} USDC price on Base ↗`}
+                  </button>}
+                  {baseDatasetId && <p className="success-note">✓ Base dataset {baseDatasetId} is ready for USDC jobs.</p>}
                 </div>
               </form>
             </>

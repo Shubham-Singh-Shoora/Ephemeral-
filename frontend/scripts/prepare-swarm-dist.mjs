@@ -51,7 +51,7 @@ function rewriteCss(source, prefix) {
 
 function rewriteJavaScript(source, prefix) {
   return source
-    .replace(/(["'`])\/(assets|fonts|js)\//g, `$1${prefix}$2/`)
+    .replace(/(["'`])\/(_assets|assets|fonts|js)\//g, `$1${prefix}$2/`)
     .replace(/href:"\/"/g, `href:"${prefix}"`);
 }
 

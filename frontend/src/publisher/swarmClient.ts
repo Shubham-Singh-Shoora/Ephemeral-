@@ -13,6 +13,11 @@ import {
 const PUBLISHER_KEY = 'ephemeral.swarm.publisher-key';
 const LOCAL_VAULT_KEYS = 'ephemeral.swarm.local-vault-keys';
 const BUILDER_KEY = 'ephemeral.ai-builder-key';
+const BROWSER_DEMO_VAULT = String(import.meta.env.PUBLIC_DEMO_VAULT || '').toLowerCase() === 'true';
+
+function canUseBrowserDemoVault(): boolean {
+  return BROWSER_DEMO_VAULT || ['localhost', '127.0.0.1'].includes(window.location.hostname);
+}
 
 function sessionKey(key: string): string | null {
   return typeof sessionStorage === 'undefined' ? null : sessionStorage.getItem(key);
@@ -41,7 +46,7 @@ function getVaultPublicKeys(): string[] {
 
   // Local-only recipients let developers exercise the complete cryptographic path.
   // Production publishing requires Vault DON public keys supplied at build time.
-  if (!['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+  if (!canUseBrowserDemoVault()) {
     throw new Error('PUBLIC_VAULT_DON_PUBLIC_KEYS must contain at least three Vault DON public keys');
   }
   const stored = sessionKey(LOCAL_VAULT_KEYS);
@@ -54,7 +59,7 @@ function getVaultPublicKeys(): string[] {
 async function deliverVaultPackage(result: HospitalPublishResult): Promise<void> {
   const endpoint = String(import.meta.env.PUBLIC_VAULT_DON_ENDPOINT || '').trim();
   if (!endpoint) {
-    if (!['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+    if (!canUseBrowserDemoVault()) {
       throw new Error('PUBLIC_VAULT_DON_ENDPOINT is required for production publishing');
     }
     sessionStorage.setItem(

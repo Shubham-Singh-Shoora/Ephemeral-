@@ -8,9 +8,14 @@ export type Dataset = {
   description: string;
   color: string;
   price: number;
+  paymentToken?: 'USDC' | 'xDAI';
+  paymentChainId?: number;
+  baseDatasetId?: number;
   onChainDatasetId?: number;
   local?: boolean;
   rows?: string[][];
+  columnProfiles?: import('@ephemeral/eth-swarm').SyntheticColumnProfile[];
+  privacyModel?: 'ephemeral-safe-harbor-v1';
   encryptedDatasetRef?: string;
   granteeListRef?: string;
   actHistoryRef?: string;
@@ -19,6 +24,7 @@ export type Dataset = {
   feedManifestRef?: string;
   feedTopic?: string;
   feedOwner?: string;
+  postageBatchId?: string;
   vaultKeyCommitment?: string;
   isSwarmLive?: boolean;
   access?: 'public' | 'protected';
